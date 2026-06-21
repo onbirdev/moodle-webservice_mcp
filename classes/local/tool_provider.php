@@ -129,6 +129,10 @@ class tool_provider {
                 $schema['_required'] = true;
             }
 
+            if ($param->allownull) {
+                $schema['type'] = [$type, null];
+            }
+
             return $schema;
         }
 
