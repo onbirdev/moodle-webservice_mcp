@@ -1,8 +1,10 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## Version 0.4.3 (2026062900)
+## Version 0.5.0 (2026062901)
 - Fix: Support nullable parameters in tool provider schema
+- Improved: Error handling with detailed JSON-RPC error responses
+- Improved: Response validation and cleaning for MCP tools
 
 ## Version 0.4.1 (2025121302)
 - Fix: Simplified `moodle_exception` usage by using global class instead of namespaced version
