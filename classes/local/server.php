@@ -18,11 +18,16 @@ declare(strict_types=1);
 
 namespace webservice_mcp\local;
 
-use moodle_exception;
+use core\exception\invalid_parameter_exception;
+use core\exception\invalid_response_exception;
 use core_external\external_api;
+use core_external\external_description;
+use core_external\external_multiple_structure;
+use core_external\external_single_structure;
+use core_external\external_value;
 use Exception;
+use moodle_exception;
 use webservice_base_server;
-
 
 /**
  * MCP (Model Context Protocol) web service server implementation.
@@ -318,7 +323,7 @@ class server extends webservice_base_server {
 
         try {
             if ($this->function->returns_desc !== null) {
-                $validatedvalues = external_api::clean_returnvalue(
+                $validatedvalues = self::clean_response(
                     $this->function->returns_desc,
                     $this->returns
                 );
@@ -472,5 +477,99 @@ class server extends webservice_base_server {
             ' Debug: ' . ($info->debuginfo ?? '') . "\n" .
             format_backtrace($info->backtrace ?? [], true);
         debugging($message);
+    }
+
+    /**
+     * Clean response.
+     *
+     * @param external_description $description description of the return values
+     * @param mixed $response the actual response
+     * @return mixed response with added defaults for optional items, invalid_response_exception thrown if any problem found
+     *
+     * @see external_api::clean_returnvalue()
+     * @author 2010 Jerome Mouneyrac
+     */
+    public static function clean_response(external_description $description, $response) {
+        if ($response === null && $description->allownull == NULL_ALLOWED) {
+            return null;
+        }
+        if ($description instanceof external_value) {
+            if (is_array($response) || is_object($response)) {
+                throw new invalid_response_exception('Scalar type expected, array or object received.');
+            }
+
+            if ($description->type == PARAM_BOOL) {
+                // Special case for PARAM_BOOL - we want true/false instead of the usual 1/0 - we can not be too strict here.
+                if (is_bool($response) || $response === 0 || $response === 1 || $response === '0' || $response === '1') {
+                    return (bool) $response;
+                }
+            }
+            $responsetype = gettype($response);
+            $debuginfo = "Invalid external api response: the value is \"{$response}\" of PHP type \"{$responsetype}\", ";
+            $debuginfo .= "the server was expecting \"{$description->type}\" type";
+            try {
+                return validate_param($response, $description->type, $description->allownull, $debuginfo);
+            } catch (invalid_parameter_exception $e) {
+                // Proper exception name, to be recursively catched to build the path to the faulty attribute.
+                throw new invalid_response_exception($e->debuginfo);
+            }
+        } else if ($description instanceof external_single_structure) {
+            if (!is_array($response) && !is_object($response)) {
+                throw new invalid_response_exception(
+                // phpcs:ignore moodle.PHP.ForbiddenFunctions.Found
+                    "Only arrays/objects accepted. The bad value is: '" . print_r($response, true) . "'"
+                );
+            }
+
+            // Cast objects into arrays.
+            if (is_object($response)) {
+                $response = (array) $response;
+            }
+
+            $result = [];
+            foreach ($description->keys as $key => $subdesc) {
+                if (!array_key_exists($key, $response)) {
+                    if ($subdesc->required == VALUE_REQUIRED) {
+                        throw new invalid_response_exception(
+                            "Error in response - Missing following required key in a single structure: {$key}"
+                        );
+                    }
+                    if ($subdesc instanceof external_value) {
+                        if ($subdesc->required == VALUE_DEFAULT) {
+                            try {
+                                $result[$key] = self::clean_response($subdesc, $subdesc->default);
+                            } catch (invalid_response_exception $e) {
+                                // Build the path to the faulty attribute.
+                                throw new invalid_response_exception("{$key} => " . $e->getMessage() . ': ' . $e->debuginfo);
+                            }
+                        }
+                    }
+                } else {
+                    try {
+                        $result[$key] = self::clean_response($subdesc, $response[$key]);
+                    } catch (invalid_response_exception $e) {
+                        // Build the path to the faulty attribute.
+                        throw new invalid_response_exception("{$key} => " . $e->getMessage() . ': ' . $e->debuginfo);
+                    }
+                }
+                unset($response[$key]);
+            }
+
+            return $result;
+        } else if ($description instanceof external_multiple_structure) {
+            if (!is_array($response)) {
+                throw new invalid_response_exception(
+                // phpcs:ignore moodle.PHP.ForbiddenFunctions.Found
+                    "Only arrays accepted. The bad value is: '" . print_r($response, true) . "'"
+                );
+            }
+            $result = [];
+            foreach ($response as $param) {
+                $result[] = self::clean_response($description->content, $param);
+            }
+            return $result;
+        } else {
+            throw new invalid_response_exception('Invalid external api response description');
+        }
     }
 }
