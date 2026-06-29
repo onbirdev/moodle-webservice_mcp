@@ -1,6 +1,9 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## Version 0.4.3 (2026062900)
+- Fix: Support nullable parameters in tool provider schema
+
 ## Version 0.4.1 (2025121302)
 - Fix: Simplified `moodle_exception` usage by using global class instead of namespaced version
 
