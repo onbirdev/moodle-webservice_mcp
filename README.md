@@ -24,8 +24,8 @@ This plugin bridges Moodle's web services with the MCP protocol, enabling AI ass
 
 ## Requirements
 
-- **Moodle**: 4.2 or higher
-- **PHP**: 8.0 or higher
+- **Moodle**: 4.5 or higher
+- **PHP**: 8.1 or higher
 - **Moodle Web Services**: Must be enabled
 
 ## Installation
