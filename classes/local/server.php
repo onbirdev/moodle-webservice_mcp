@@ -20,13 +20,13 @@ namespace webservice_mcp\local;
 
 use core\exception\invalid_parameter_exception;
 use core\exception\invalid_response_exception;
+use core\exception\moodle_exception;
 use core_external\external_api;
 use core_external\external_description;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
 use Exception;
-use moodle_exception;
 use webservice_base_server;
 
 /**
@@ -111,7 +111,6 @@ class server extends webservice_base_server {
      * Parse and validate incoming request, set token, method, parameters.
      *
      * @return void
-     * @throws moodle_exception If the incoming request is invalid.
      */
     protected function parse_request(): void {
         parent::set_web_service_call_settings();
@@ -396,6 +395,7 @@ class server extends webservice_base_server {
         $errordata = [
             'exception' => get_class($ex),
             'message' => $ex->getMessage(),
+            'code' => $ex->getCode(),
         ];
 
         if (isset($ex->errorcode)) {
@@ -407,8 +407,8 @@ class server extends webservice_base_server {
         }
 
         $code = -32603;
-        if (isset($ex->code) && is_numeric($ex->code)) {
-            $code = (int) $ex->code;
+        if (is_numeric($ex->errorcode)) {
+            $code = (int) $ex->errorcode;
         }
 
         return [
