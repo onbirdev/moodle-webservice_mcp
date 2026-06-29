@@ -406,15 +406,10 @@ class server extends webservice_base_server {
             $errordata['debuginfo'] = $ex->debuginfo;
         }
 
-        $code = -32603;
-        if (is_numeric($ex->errorcode)) {
-            $code = (int) $ex->errorcode;
-        }
-
         return [
             'jsonrpc' => $this->mcprequest->id ?? '2.0',
             'error' => [
-                'code' => $code,
+                'code' => -32603,
                 'message' => $ex->getMessage(),
                 'data' => $errordata,
             ],
