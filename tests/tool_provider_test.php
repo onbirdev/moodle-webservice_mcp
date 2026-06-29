@@ -47,7 +47,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
     public function test_generate_schema_string(): void {
         $this->resetAfterTest(true);
 
-        $param = new external_value(PARAM_TEXT, 'Test parameter', VALUE_REQUIRED);
+        $param = new external_value(PARAM_TEXT, 'Test parameter', VALUE_REQUIRED, null, false);
 
         $reflection = new ReflectionClass(tool_provider::class);
         $method = $reflection->getMethod('generate_schema');
@@ -66,7 +66,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
     public function test_generate_schema_integer(): void {
         $this->resetAfterTest(true);
 
-        $param = new external_value(PARAM_INT, 'Test integer', VALUE_OPTIONAL);
+        $param = new external_value(PARAM_INT, 'Test integer', VALUE_OPTIONAL, null, false);
 
         $reflection = new ReflectionClass(tool_provider::class);
         $method = $reflection->getMethod('generate_schema');
@@ -85,7 +85,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
     public function test_generate_schema_float(): void {
         $this->resetAfterTest(true);
 
-        $param = new external_value(PARAM_FLOAT, 'Test float');
+        $param = new external_value(PARAM_FLOAT, 'Test float', VALUE_OPTIONAL, null, false);
 
         $reflection = new ReflectionClass(tool_provider::class);
         $method = $reflection->getMethod('generate_schema');
@@ -102,7 +102,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
     public function test_generate_schema_boolean(): void {
         $this->resetAfterTest(true);
 
-        $param = new external_value(PARAM_BOOL, 'Test boolean');
+        $param = new external_value(PARAM_BOOL, 'Test boolean', VALUE_OPTIONAL, null, false);
 
         $reflection = new ReflectionClass(tool_provider::class);
         $method = $reflection->getMethod('generate_schema');
@@ -120,9 +120,9 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $this->resetAfterTest(true);
 
         $param = new external_single_structure([
-            'name' => new external_value(PARAM_TEXT, 'Name field', VALUE_REQUIRED),
-            'age' => new external_value(PARAM_INT, 'Age field', VALUE_OPTIONAL),
-            'active' => new external_value(PARAM_BOOL, 'Active status', VALUE_REQUIRED),
+            'name' => new external_value(PARAM_TEXT, 'Name field', VALUE_REQUIRED, null, false),
+            'age' => new external_value(PARAM_INT, 'Age field', VALUE_OPTIONAL, null, false),
+            'active' => new external_value(PARAM_BOOL, 'Active status', VALUE_REQUIRED, null, false),
         ]);
 
         $reflection = new ReflectionClass(tool_provider::class);
@@ -154,7 +154,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $this->resetAfterTest(true);
 
         $param = new external_multiple_structure(
-            new external_value(PARAM_TEXT, 'Item description')
+            new external_value(PARAM_TEXT, 'Item description', VALUE_OPTIONAL, null, false)
         );
 
         $reflection = new ReflectionClass(tool_provider::class);
