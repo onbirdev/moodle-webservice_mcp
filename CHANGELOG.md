@@ -1,6 +1,10 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+- Fix: Generate valid JSON Schema draft 2020-12 tool schemas: map `PARAM_LOCALISEDFLOAT` to `number`,
+  apply nullability to structures as well as values, and always encode `properties` as a JSON object.
+
 ## Version 0.6.0 (2026072300)
 - Feat: Support MCP `notifications/initialized`
 - Feat: Add JSON-RPC `ping` method to MCP server with unit tests and documentation
