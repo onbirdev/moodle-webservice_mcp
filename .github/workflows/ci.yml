@@ -50,6 +50,9 @@ jobs:
           # If you try to use code coverage with "none", it will fallback to phpdbg (which has known problems).
           coverage: none
 
+      - name: Install JSON Schema 2020-12 validator
+        run: python3 -m pip install 'jsonschema>=4.18,<5'
+
       - name: Initialise moodle-plugin-ci
         run: |
           composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4

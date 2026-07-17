@@ -72,19 +72,19 @@ class tool_provider {
                 continue;
             }
 
-            $inputschema = self::build_schema($info->parameters_desc);
+            $inputschema = self::ensure_object_schema(self::build_schema($info->parameters_desc));
             $outputschema = self::build_schema($info->returns_desc);
 
             $tools[] = [
                 'name' => $info->name,
                 'description' => $info->description ?? '',
                 'inputSchema' => $inputschema,
-                'outputSchema' => [
+                'outputSchema' => self::normalise_schema([
                     'type' => 'object',
                     'properties' => [
                         'result' => $outputschema,
                     ],
-                ],
+                ]),
             ];
         }
 
@@ -99,10 +99,15 @@ class tool_provider {
      */
     protected static function build_schema(?external_description $desc): array {
         if ($desc === null) {
-            return ['type' => 'object', 'properties' => []];
+            return self::normalise_schema(['type' => 'object', 'properties' => []]);
         }
 
-        return self::generate_schema($desc);
+        $schema = self::generate_schema($desc);
+
+        // Required is only meaningful when this schema is a property of a parent object.
+        unset($schema['_required']);
+
+        return self::normalise_schema($schema);
     }
 
     /**
@@ -118,19 +123,20 @@ class tool_provider {
         $type = self::get_schema_type($param);
         $schema = ['type' => $type];
 
+        // Required controls whether a property may be absent; it does not make the value nullable.
+        if ($param->required === VALUE_REQUIRED) {
+            $schema['_required'] = true;
+        }
+
+        // Nullability is independent from required/optional and uses JSON Schema's null type name.
+        if ($param->allownull === NULL_ALLOWED) {
+            $schema['type'] = [$type, 'null'];
+        }
+
         // Handle external_value (simple types).
         if ($param instanceof external_value) {
             if (!empty($param->desc)) {
                 $schema['description'] = $param->desc;
-            }
-
-            // Mark as internally required for parent structure processing.
-            if ($param->required === VALUE_REQUIRED) {
-                $schema['_required'] = true;
-            }
-
-            if ($param->allownull) {
-                $schema['type'] = [$type, null];
             }
 
             return $schema;
@@ -146,7 +152,7 @@ class tool_provider {
 
                 // Collect required fields at this level.
                 if (!empty($subschema['_required'])) {
-                    $requiredfields[] = $key;
+                    $requiredfields[] = (string) $key;
                 }
 
                 // Remove internal marker before adding to schema.
@@ -180,13 +186,16 @@ class tool_provider {
      * Convert Moodle parameter type to JSON Schema type.
      *
      * @param external_description $param The parameter description.
-     * @return string JSON Schema type (string, number, boolean, object, array).
+     * @return string JSON Schema type (string, number, integer, boolean, object, array).
      */
     protected static function get_schema_type(external_description $param): string {
         if ($param instanceof external_value) {
             switch ($param->type) {
                 case PARAM_INT:
+                case PARAM_SEQUENCE:
+                    return 'integer';
                 case PARAM_FLOAT:
+                case PARAM_LOCALISEDFLOAT:
                     return 'number';
                 case PARAM_BOOL:
                     return 'boolean';
@@ -204,5 +213,224 @@ class tool_provider {
         }
 
         return 'object';
+    }
+
+    /**
+     * Ensure an MCP tool input schema is an object schema.
+     *
+     * Moodle function parameter descriptions are external function parameters (an object),
+     * but this final guard keeps the provider contract valid if a third-party function returns
+     * an incomplete description.
+     *
+     * @param array $schema The generated schema.
+     * @return array A top-level object schema.
+     */
+    protected static function ensure_object_schema(array $schema): array {
+        $types = (array) ($schema['type'] ?? []);
+        if (!in_array('object', $types, true)) {
+            $schema = [
+                'type' => 'object',
+                'properties' => [],
+            ];
+        } else {
+            // Tool arguments themselves cannot be null, even when a malformed description says otherwise.
+            $schema['type'] = 'object';
+            if (!array_key_exists('properties', $schema)) {
+                $schema['properties'] = [];
+            }
+        }
+
+        return self::normalise_schema($schema);
+    }
+
+    /**
+     * Normalise a generated schema to the provider-compatible JSON Schema 2020-12 subset.
+     *
+     * This is intentionally applied after schema generation as a defence-in-depth guard for
+     * third-party Moodle functions and future schema keywords.
+     *
+     * @param array $schema The schema to normalise.
+     * @return array The normalised schema.
+     */
+    protected static function normalise_schema(array $schema): array {
+        if (array_key_exists('type', $schema)) {
+            $schema['type'] = self::normalise_schema_type($schema['type']);
+        }
+
+        if (array_key_exists('description', $schema) && !is_string($schema['description'])) {
+            if (is_scalar($schema['description']) || $schema['description'] instanceof \Stringable) {
+                $schema['description'] = (string) $schema['description'];
+            } else {
+                unset($schema['description']);
+            }
+        }
+
+        if (array_key_exists('properties', $schema)) {
+            $properties = is_object($schema['properties'])
+                ? get_object_vars($schema['properties'])
+                : $schema['properties'];
+            $normalisedproperties = [];
+
+            if (is_array($properties)) {
+                foreach ($properties as $name => $propertyschema) {
+                    if (is_array($propertyschema)) {
+                        $normalisedproperties[(string) $name] = self::normalise_schema($propertyschema);
+                    }
+                }
+            }
+
+            // Empty PHP arrays encode as [], while JSON Schema requires an object here.
+            if (empty($normalisedproperties)) {
+                $schema['properties'] = (object) [];
+            } else {
+                $schema['properties'] = array_is_list($normalisedproperties)
+                    ? (object) $normalisedproperties
+                    : $normalisedproperties;
+            }
+        }
+
+        $types = (array) ($schema['type'] ?? []);
+        if (in_array('object', $types, true) && !array_key_exists('properties', $schema)) {
+            $schema['properties'] = (object) [];
+        }
+
+        if (array_key_exists('items', $schema)) {
+            $schema['items'] = is_array($schema['items'])
+                ? self::normalise_schema($schema['items'])
+                : ['type' => 'string'];
+        } elseif (in_array('array', $types, true)) {
+            $schema['items'] = ['type' => 'string'];
+        }
+
+        if (array_key_exists('required', $schema)) {
+            if (!is_array($schema['required'])) {
+                unset($schema['required']);
+            } else {
+                $required = [];
+                foreach ($schema['required'] as $name) {
+                    if (is_string($name) && !in_array($name, $required, true)) {
+                        $required[] = $name;
+                    }
+                }
+
+                if (empty($required)) {
+                    unset($schema['required']);
+                } else {
+                    $schema['required'] = $required;
+                }
+            }
+        }
+
+        foreach (['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'] as $keyword) {
+            if (!array_key_exists($keyword, $schema)) {
+                continue;
+            }
+
+            $value = $schema[$keyword];
+            if ((!is_int($value) && !is_float($value)) || !is_finite((float) $value)) {
+                unset($schema[$keyword]);
+                continue;
+            }
+
+            if ($keyword === 'multipleOf' && $value <= 0) {
+                unset($schema[$keyword]);
+            }
+        }
+
+        $countkeywords = [
+            'minLength',
+            'maxLength',
+            'minItems',
+            'maxItems',
+            'minProperties',
+            'maxProperties',
+            'minContains',
+            'maxContains',
+        ];
+        foreach ($countkeywords as $keyword) {
+            if (array_key_exists($keyword, $schema)
+                    && (!is_int($schema[$keyword]) || $schema[$keyword] < 0)) {
+                unset($schema[$keyword]);
+            }
+        }
+
+        // Internal generation marker; never expose it as a provider schema keyword.
+        unset($schema['_required']);
+
+        return $schema;
+    }
+
+    /**
+     * Normalise a JSON Schema type or union of types.
+     *
+     * @param mixed $type A generated JSON Schema type value.
+     * @return string|array A valid JSON Schema primitive type or unique union of types.
+     */
+    protected static function normalise_schema_type(mixed $type): string|array {
+        if (!is_array($type)) {
+            return self::normalise_schema_type_name($type);
+        }
+
+        $types = [];
+        foreach ($type as $typename) {
+            $normalisedtype = self::normalise_schema_type_name($typename);
+            if (!in_array($normalisedtype, $types, true)) {
+                $types[] = $normalisedtype;
+            }
+        }
+
+        if (empty($types)) {
+            return 'string';
+        }
+
+        return count($types) === 1 ? reset($types) : $types;
+    }
+
+    /**
+     * Convert aliases and malformed type names to a JSON Schema primitive type name.
+     *
+     * @param mixed $type A generated type name.
+     * @return string A valid JSON Schema primitive type name.
+     */
+    protected static function normalise_schema_type_name(mixed $type): string {
+        if ($type === null || (is_string($type) && strtolower($type) === 'none')) {
+            return 'null';
+        }
+
+        if (!is_string($type)) {
+            return 'string';
+        }
+
+        switch (strtolower($type)) {
+            case 'string':
+            case 'number':
+            case 'integer':
+            case 'boolean':
+            case 'object':
+            case 'array':
+            case 'null':
+                return strtolower($type);
+            case 'int':
+            case 'param_int':
+            case 'param_integer':
+            case 'param_sequence':
+                return 'integer';
+            case 'float':
+            case 'double':
+            case 'param_float':
+            case 'param_number':
+            case 'param_localisedfloat':
+                return 'number';
+            case 'bool':
+            case 'param_bool':
+                return 'boolean';
+            case 'dict':
+                return 'object';
+            case 'list':
+                return 'array';
+            default:
+                // Moodle text types, language aliases such as "str", "any", and unknowns are strings.
+                return 'string';
+        }
     }
 }

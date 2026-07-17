@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## Version 0.5.1 (2026071700)
+- Fix: Generate draft 2020-12-compatible MCP tool schemas by mapping Moodle and language
+  type names to JSON Schema primitives, encoding nullable values with the string `"null"`
+  instead of a JSON null literal, and normalising provider-incompatible keywords.
+
 ## Version 0.5.0 (2026062901)
 - Fix: Support nullable parameters in tool provider schema
 - Improved: Error handling with detailed JSON-RPC error responses
