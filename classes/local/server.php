@@ -440,7 +440,7 @@ class server extends webservice_base_server {
         }
 
         return [
-            'jsonrpc' => $this->mcprequest->id ?? '2.0',
+            'jsonrpc' => '2.0',
             'error' => [
                 'code' => -32603,
                 'message' => $ex->getMessage(),

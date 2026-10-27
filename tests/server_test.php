@@ -250,6 +250,31 @@ final class server_test extends advanced_testcase {
     }
 
     /**
+     * Test generate_error keeps jsonrpc at "2.0" when a request id is set.
+     */
+    public function test_generate_error_with_request_id(): void {
+        $this->resetAfterTest(true);
+
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+
+        $reflection = new ReflectionClass($server);
+        $mcprequestprop = $reflection->getProperty('mcprequest');
+        $mcprequestprop->setAccessible(true);
+        $mcprequestprop->setValue($server, new request([
+            'jsonrpc' => '2.0',
+            'method' => 'tools/call',
+            'id' => 42,
+        ]));
+
+        $method = $reflection->getMethod('generate_error');
+        $method->setAccessible(true);
+        $error = $method->invoke($server, new Exception('Test error message'));
+
+        $this->assertSame('2.0', $error['jsonrpc']);
+        $this->assertSame(42, $error['id']);
+    }
+
+    /**
      * Test safe_json_encode with valid data.
      */
     public function test_safe_json_encode_valid(): void {
