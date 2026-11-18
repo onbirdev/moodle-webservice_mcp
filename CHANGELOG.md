@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## Version 0.9.0 (2026111803)
+
+- Feat: Add configurable `webservice_mcp/instructions` admin setting (`settings.php`) sent as `instructions` in the
+  MCP `initialize` response and omitted when empty (#13)
+- Docs: Document the Server instructions setting and `initialize` response field in `README.md` (#13)
+- Test: Add unit tests for `initialize` responses with and without configured server instructions in
+  `tests/server_test.php` (#13)
+
 ## Version 0.8.0 (2026111801)
 
 - Security: Enforce Moodle web service authorization (`enabled`, `restrictedusers`, `validuntil`, `iprestriction`,
