@@ -307,6 +307,9 @@ class server extends webservice_base_server {
     /**
      * Send MCP initialize JSON-RPC response.
      *
+     * The optional instructions come from the admin setting webservice_mcp/instructions.
+     * They are omitted when the setting is empty, since the field is optional in the spec.
+     *
      * @return void
      */
     protected function send_initialize_response(): void {
@@ -319,8 +322,12 @@ class server extends webservice_base_server {
                 'name' => self::SERVER_NAME,
                 'version' => self::SERVER_VERSION,
             ],
-            'instructions' => 'Moodle MCP server initialized successfully',
         ];
+
+        $instructions = trim((string) get_config('webservice_mcp', 'instructions'));
+        if ($instructions !== '') {
+            $result['instructions'] = $instructions;
+        }
 
         $payload = [
             'jsonrpc' => $this->mcprequest->jsonrpc,

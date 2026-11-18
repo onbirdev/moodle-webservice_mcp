@@ -89,6 +89,17 @@ instance in a standardized way.
 
 Ensure users have the `webservice/mcp:use` capability to access the MCP web service.
 
+### 6. Server Instructions (Optional)
+
+1. Go to **Site administration → Plugins → Web services → Model Context Protocol**
+2. Enter **Server instructions** for AI agents
+
+The text is sent as `instructions` in the `initialize` response. MCP clients pass it to the model as guidance for
+using the server, for example in the system prompt. Tool descriptions come only from the external function
+definitions, so this is the place to explain how the functions work together and which conventions apply on your
+site, for example how files are uploaded through `/webservice/upload.php`. When the setting is empty, `instructions`
+is omitted.
+
 ## Usage
 
 #### Endpoint URL
@@ -159,7 +170,8 @@ Monitor MCP web service usage through:
     },
     "capabilities": {
       "tools": {}
-    }
+    },
+    "instructions": "Text from the Server instructions setting (omitted when empty)"
   },
   "id": 1
 }

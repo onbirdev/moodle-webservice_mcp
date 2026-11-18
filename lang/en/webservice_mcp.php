@@ -29,6 +29,10 @@ $string['err_invalid_json'] = 'Invalid JSON';
 $string['err_invalid_jsonrpc'] = 'Invalid JSON-RPC version';
 $string['err_missing_method'] = 'Missing method';
 $string['err_missing_tool_name'] = 'Missing tool name';
+$string['instructions'] = 'Server instructions';
+$string['instructions_desc'] = 'Guidance for AI agents, sent as <code>instructions</code> in the MCP <code>initialize</code> '
+    . 'response. Clients pass it to the model, for example in the system prompt. Use it to explain how the functions '
+    . 'of your services work together and which conventions apply on this site. Leave empty to send no instructions.';
 $string['mcp:use'] = 'Use MCP web service';
 $string['pluginname'] = 'Model Context Protocol';
 $string['privacy:metadata'] =
