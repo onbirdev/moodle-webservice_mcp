@@ -23,6 +23,7 @@ use core_external\external_description;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
+use stdClass;
 use Throwable;
 
 /**
@@ -79,19 +80,23 @@ class tool_provider {
             }
 
             $inputschema = self::build_schema($info->parameters_desc);
-            $outputschema = self::build_schema($info->returns_desc);
 
-            $tools[] = [
+            $tool = [
                 'name' => $info->name,
                 'description' => $info->description ?? '',
                 'inputSchema' => $inputschema,
-                'outputSchema' => [
+            ];
+
+            if ($info->returns_desc !== null) {
+                $tool['outputSchema'] = [
                     'type' => 'object',
                     'properties' => [
-                        'result' => $outputschema,
+                        'result' => self::build_schema($info->returns_desc),
                     ],
-                ],
-            ];
+                ];
+            }
+
+            $tools[] = $tool;
         }
 
         return $tools;
@@ -105,7 +110,7 @@ class tool_provider {
      */
     protected static function build_schema(?external_description $desc): array {
         if ($desc === null) {
-            return ['type' => 'object', 'properties' => []];
+            return ['type' => 'object', 'properties' => new stdClass()];
         }
 
         $schema = self::generate_schema($desc);
@@ -152,7 +157,7 @@ class tool_provider {
 
         // Handle external_single_structure (object).
         if ($param instanceof external_single_structure) {
-            $schema['properties'] = [];
+            $properties = [];
             $requiredfields = [];
 
             foreach ($param->keys as $key => $subparam) {
@@ -166,8 +171,10 @@ class tool_provider {
                 // Remove internal marker before adding to schema.
                 unset($subschema['_required']);
 
-                $schema['properties'][$key] = $subschema;
+                $properties[$key] = $subschema;
             }
+
+            $schema['properties'] = empty($properties) ? new stdClass() : $properties;
 
             if (!empty($requiredfields)) {
                 $schema['required'] = $requiredfields;

@@ -285,7 +285,27 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $schema = $method->invoke(null, null);
 
         $this->assertEquals('object', $schema['type']);
-        $this->assertEquals([], $schema['properties']);
+        $this->assertInstanceOf(stdClass::class, $schema['properties']);
+        $this->assertEquals('{"type":"object","properties":{}}', json_encode($schema));
+    }
+
+    /**
+     * Test schema generation for empty single structure (object with no properties).
+     */
+    public function test_generate_schema_empty_single_structure(): void {
+        $this->resetAfterTest(true);
+
+        $param = new external_single_structure([]);
+
+        $reflection = new ReflectionClass(tool_provider::class);
+        $method = $reflection->getMethod('generate_schema');
+        $method->setAccessible(true);
+
+        $schema = $method->invoke(null, $param);
+
+        $this->assertEquals('object', $schema['type']);
+        $this->assertInstanceOf(stdClass::class, $schema['properties']);
+        $this->assertEquals('{"type":"object","properties":{}}', json_encode($schema));
     }
 
     /**
@@ -341,5 +361,57 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $this->assertEquals('core_webservice_get_site_info', $tool['name']);
         $this->assertIsArray($tool['inputSchema']);
         $this->assertIsArray($tool['outputSchema']);
+    }
+
+    /**
+     * Test get_tools omits outputSchema for void-returning external functions.
+     */
+    public function test_get_tools_void_return(): void {
+        global $DB, $USER;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        // Create a test service.
+        $service = new stdClass();
+        $service->name = 'Test MCP Void Service';
+        $service->enabled = 1;
+        $service->restrictedusers = 0;
+        $service->component = null;
+        $service->timecreated = time();
+        $service->timemodified = time();
+        $service->shortname = 'test_mcp_void_service';
+        $service->downloadfiles = 0;
+        $service->uploadfiles = 0;
+        $serviceid = $DB->insert_record('external_services', $service);
+
+        // Add a void-returning function (mod_assign_save_grades returns null).
+        $function = new stdClass();
+        $function->externalserviceid = $serviceid;
+        $function->functionname = 'mod_assign_save_grades';
+        $DB->insert_record('external_services_functions', $function);
+
+        // Create a token for the service.
+        $token = new stdClass();
+        $token->token = bin2hex(random_bytes(32));
+        $token->userid = $USER->id;
+        $token->tokentype = EXTERNAL_TOKEN_PERMANENT;
+        $token->contextid = context_system::instance()->id;
+        $token->creatorid = $USER->id;
+        $token->timecreated = time();
+        $token->externalserviceid = $serviceid;
+        $DB->insert_record('external_tokens', $token);
+
+        // Test get_tools.
+        $tools = tool_provider::get_tools($token->token);
+
+        $this->assertCount(1, $tools);
+
+        $tool = $tools[0];
+        $this->assertEquals('mod_assign_save_grades', $tool['name']);
+        $this->assertArrayHasKey('inputSchema', $tool);
+        $this->assertArrayNotHasKey('outputSchema', $tool);
+
+        $encoded = json_encode($tool, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('"properties":[]', $encoded);
     }
 }
