@@ -512,6 +512,215 @@ final class tool_provider_test extends externallib_advanced_testcase {
     }
 
     /**
+     * Test get_tools returns empty when the service is disabled.
+     */
+    public function test_get_tools_disabled_service(): void {
+        global $DB, $USER;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $service = (object) [
+            'name' => 'Disabled MCP Service',
+            'enabled' => 0,
+            'restrictedusers' => 0,
+            'component' => null,
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'shortname' => 'disabled_mcp_service',
+            'downloadfiles' => 0,
+            'uploadfiles' => 0,
+        ];
+        $serviceid = $DB->insert_record('external_services', $service);
+
+        $DB->insert_record('external_services_functions', (object) [
+            'externalserviceid' => $serviceid,
+            'functionname' => 'core_webservice_get_site_info',
+        ]);
+
+        $token = (object) [
+            'token' => bin2hex(random_bytes(32)),
+            'userid' => $USER->id,
+            'tokentype' => EXTERNAL_TOKEN_PERMANENT,
+            'contextid' => context_system::instance()->id,
+            'creatorid' => $USER->id,
+            'timecreated' => time(),
+            'externalserviceid' => $serviceid,
+        ];
+        $DB->insert_record('external_tokens', $token);
+
+        $this->assertSame([], tool_provider::get_tools($token->token));
+    }
+
+    /**
+     * Test get_tools enforces restrictedusers, validuntil, and iprestriction.
+     */
+    public function test_get_tools_restricted_users(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $user = $this->getDataGenerator()->create_user();
+
+        $service = (object) [
+            'name' => 'Restricted MCP Service',
+            'enabled' => 1,
+            'restrictedusers' => 1,
+            'component' => null,
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'shortname' => 'restricted_mcp_service',
+            'downloadfiles' => 0,
+            'uploadfiles' => 0,
+        ];
+        $serviceid = $DB->insert_record('external_services', $service);
+
+        $DB->insert_record('external_services_functions', (object) [
+            'externalserviceid' => $serviceid,
+            'functionname' => 'core_webservice_get_site_info',
+        ]);
+
+        $token = (object) [
+            'token' => bin2hex(random_bytes(32)),
+            'userid' => $user->id,
+            'tokentype' => EXTERNAL_TOKEN_PERMANENT,
+            'contextid' => context_system::instance()->id,
+            'creatorid' => $user->id,
+            'timecreated' => time(),
+            'externalserviceid' => $serviceid,
+        ];
+        $DB->insert_record('external_tokens', $token);
+
+        // User is not listed in external_services_users yet.
+        $this->assertSame([], tool_provider::get_tools($token->token));
+
+        // Add user with expired validuntil.
+        $serviceuserid = $DB->insert_record('external_services_users', (object) [
+            'externalserviceid' => $serviceid,
+            'userid' => $user->id,
+            'validuntil' => time() - 3600,
+            'timecreated' => time(),
+        ]);
+        $this->assertSame([], tool_provider::get_tools($token->token));
+
+        // Update validuntil to future, but set a non-matching IP restriction.
+        $DB->update_record('external_services_users', (object) [
+            'id' => $serviceuserid,
+            'validuntil' => time() + 3600,
+            'iprestriction' => '192.0.2.1/32',
+        ]);
+        $this->assertSame([], tool_provider::get_tools($token->token));
+
+        // Remove IP restriction; user is now authorized.
+        $DB->update_record('external_services_users', (object) [
+            'id' => $serviceuserid,
+            'iprestriction' => null,
+        ]);
+        $tools = tool_provider::get_tools($token->token);
+        $this->assertCount(1, $tools);
+        $this->assertSame('core_webservice_get_site_info', $tools[0]['name']);
+    }
+
+    /**
+     * Test get_tools enforces service requiredcapability in the token's context.
+     */
+    public function test_get_tools_required_capability(): void {
+        global $DB;
+        $this->resetAfterTest(true);
+
+        $user = $this->getDataGenerator()->create_user();
+        $sysctx = context_system::instance();
+
+        $service = (object) [
+            'name' => 'Capability MCP Service',
+            'enabled' => 1,
+            'restrictedusers' => 0,
+            'requiredcapability' => 'moodle/site:config',
+            'component' => null,
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'shortname' => 'cap_mcp_service',
+            'downloadfiles' => 0,
+            'uploadfiles' => 0,
+        ];
+        $serviceid = $DB->insert_record('external_services', $service);
+
+        $DB->insert_record('external_services_functions', (object) [
+            'externalserviceid' => $serviceid,
+            'functionname' => 'core_webservice_get_site_info',
+        ]);
+
+        $token = (object) [
+            'token' => bin2hex(random_bytes(32)),
+            'userid' => $user->id,
+            'tokentype' => EXTERNAL_TOKEN_PERMANENT,
+            'contextid' => $sysctx->id,
+            'creatorid' => $user->id,
+            'timecreated' => time(),
+            'externalserviceid' => $serviceid,
+        ];
+        $DB->insert_record('external_tokens', $token);
+
+        // User lacks moodle/site:config.
+        $this->assertSame([], tool_provider::get_tools($token->token));
+
+        // Grant moodle/site:config at system context.
+        $roleid = $this->getDataGenerator()->create_role();
+        assign_capability('moodle/site:config', CAP_ALLOW, $roleid, $sysctx->id);
+        $this->getDataGenerator()->role_assign($roleid, $user->id, $sysctx->id);
+
+        $tools = tool_provider::get_tools($token->token);
+        $this->assertCount(1, $tools);
+        $this->assertSame('core_webservice_get_site_info', $tools[0]['name']);
+    }
+
+    /**
+     * Test get_tools respects token-level validuntil and iprestriction.
+     */
+    public function test_get_tools_token_restrictions(): void {
+        global $DB, $USER;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $service = (object) [
+            'name' => 'Token Restricted MCP Service',
+            'enabled' => 1,
+            'restrictedusers' => 0,
+            'component' => null,
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'shortname' => 'token_restricted_mcp_service',
+            'downloadfiles' => 0,
+            'uploadfiles' => 0,
+        ];
+        $serviceid = $DB->insert_record('external_services', $service);
+
+        $DB->insert_record('external_services_functions', (object) [
+            'externalserviceid' => $serviceid,
+            'functionname' => 'core_webservice_get_site_info',
+        ]);
+
+        $token = (object) [
+            'token' => bin2hex(random_bytes(32)),
+            'userid' => $USER->id,
+            'tokentype' => EXTERNAL_TOKEN_PERMANENT,
+            'contextid' => context_system::instance()->id,
+            'creatorid' => $USER->id,
+            'timecreated' => time(),
+            'validuntil' => time() - 60,
+            'externalserviceid' => $serviceid,
+        ];
+        $tokenid = $DB->insert_record('external_tokens', $token);
+
+        $this->assertSame([], tool_provider::get_tools($token->token));
+
+        $DB->update_record('external_tokens', (object) [
+            'id' => $tokenid,
+            'validuntil' => time() + 3600,
+            'iprestriction' => '192.0.2.1/32',
+        ]);
+        $this->assertSame([], tool_provider::get_tools($token->token));
+    }
+
+    /**
      * Assert that a tool schema, as serialised for MCP clients, is valid JSON Schema draft 2020-12.
      *
      * @param array $schema The schema produced by the tool provider.

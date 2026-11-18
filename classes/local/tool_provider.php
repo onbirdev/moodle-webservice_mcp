@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace webservice_mcp\local;
 
+use core\context;
 use core_external\external_api;
 use core_external\external_description;
 use core_external\external_multiple_structure;
@@ -44,10 +45,10 @@ class tool_provider {
     /**
      * Retrieve a list of available tools for a given token.
      *
-     * This method queries the database for external functions available
-     * to the service associated with the provided token, and converts
-     * each function's metadata into MCP tool format with JSON Schema
-     * descriptions.
+     * Validates token restrictions (expiry and IP) and delegates to
+     * {@see self::get_tools_for_service()} using the token's service, user,
+     * and restricted context so that Moodle's web service authorization rules
+     * are enforced consistently with tool execution.
      *
      * @param string $token The external service token.
      * @return array Array of tool definitions.
@@ -57,12 +58,71 @@ class tool_provider {
 
         $tokenrecord = $DB->get_record('external_tokens', ['token' => $token], '*', MUST_EXIST);
 
+        if (!empty($tokenrecord->validuntil) && (int) $tokenrecord->validuntil < time()) {
+            return [];
+        }
+
+        if (!empty($tokenrecord->iprestriction) && !address_in_subnet(getremoteaddr(), $tokenrecord->iprestriction)) {
+            return [];
+        }
+
+        $restrictedcontext = context::instance_by_id($tokenrecord->contextid);
+
+        return self::get_tools_for_service(
+            (int) $tokenrecord->externalserviceid,
+            (int) $tokenrecord->userid,
+            $restrictedcontext
+        );
+    }
+
+    /**
+     * Retrieve a list of available tools for an authenticated service, user, and context.
+     *
+     * Enforces Moodle web service access control checks: service enabled status,
+     * required capability in the restricted context, authorized user membership,
+     * user access expiry, and user-level IP restriction.
+     *
+     * @param int $serviceid The external service ID.
+     * @param int $userid The authenticated user ID.
+     * @param context $restrictedcontext The token's restricted context.
+     * @return array Array of tool definitions.
+     */
+    public static function get_tools_for_service(int $serviceid, int $userid, context $restrictedcontext): array {
+        global $DB;
+
+        $service = $DB->get_record('external_services', ['id' => $serviceid, 'enabled' => 1]);
+        if (!$service) {
+            return [];
+        }
+
+        if (!empty($service->requiredcapability) && !has_capability($service->requiredcapability, $restrictedcontext, $userid)) {
+            return [];
+        }
+
+        if (!empty($service->restrictedusers)) {
+            $serviceuser = $DB->get_record('external_services_users', [
+                'externalserviceid' => $service->id,
+                'userid' => $userid,
+            ]);
+            if (!$serviceuser) {
+                return [];
+            }
+
+            if (!empty($serviceuser->validuntil) && (int) $serviceuser->validuntil < time()) {
+                return [];
+            }
+
+            if (!empty($serviceuser->iprestriction) && !address_in_subnet(getremoteaddr(), $serviceuser->iprestriction)) {
+                return [];
+            }
+        }
+
         $tools = [];
 
         // Query functions available for this service.
         $functions = $DB->get_records(
             'external_services_functions',
-            ['externalserviceid' => $tokenrecord->externalserviceid],
+            ['externalserviceid' => $service->id],
             'functionname'
         );
 
