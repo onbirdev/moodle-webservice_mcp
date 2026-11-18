@@ -29,6 +29,8 @@
  */
 
 // Disable Moodle-specific debug messages and error output.
+use webservice_mcp\local\server;
+
 define('NO_DEBUG_DISPLAY', true);
 
 // Mark this as a web service server script.
@@ -47,6 +49,6 @@ if (!webservice_protocol_is_enabled('mcp')) {
 }
 
 // Instantiate and run the MCP server.
-$server = new \webservice_mcp\local\server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+$server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
 $server->run();
 die;

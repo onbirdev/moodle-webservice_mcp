@@ -31,4 +31,5 @@ $string['err_missing_method'] = 'Missing method';
 $string['err_missing_tool_name'] = 'Missing tool name';
 $string['mcp:use'] = 'Use MCP web service';
 $string['pluginname'] = 'Model Context Protocol';
-$string['privacy:metadata'] = 'The MCP web service plugin does not store any personal data. It provides a protocol for accessing existing Moodle web service functions.';
+$string['privacy:metadata'] =
+    'The MCP web service plugin does not store any personal data. It provides a protocol for accessing existing Moodle web service functions.';

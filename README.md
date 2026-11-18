@@ -1,6 +1,8 @@
 # Moodle MCP Web Service Plugin
 
-A Moodle web service plugin that implements the **Model Context Protocol (MCP)** for seamless integration with AI assistants and external systems. This plugin exposes Moodle's external functions as MCP tools using JSON-RPC 2.0, making them discoverable and callable by MCP-compatible clients.
+A Moodle web service plugin that implements the **Model Context Protocol (MCP)** for seamless integration with AI
+assistants and external systems. This plugin exposes Moodle's external functions as MCP tools using JSON-RPC 2.0, making
+them discoverable and callable by MCP-compatible clients.
 
 ## Features
 
@@ -14,13 +16,15 @@ A Moodle web service plugin that implements the **Model Context Protocol (MCP)**
 
 ## What is MCP?
 
-The **Model Context Protocol (MCP)** is an open protocol that standardizes how applications provide context to AI assistants and Large Language Models (LLMs). It allows AI assistants to:
+The **Model Context Protocol (MCP)** is an open protocol that standardizes how applications provide context to AI
+assistants and Large Language Models (LLMs). It allows AI assistants to:
 
 - Discover available tools and their capabilities
 - Invoke tools with proper parameters
 - Receive structured responses
 
-This plugin bridges Moodle's web services with the MCP protocol, enabling AI assistants to interact with your Moodle instance in a standardized way.
+This plugin bridges Moodle's web services with the MCP protocol, enabling AI assistants to interact with your Moodle
+instance in a standardized way.
 
 ## Requirements
 
@@ -66,10 +70,10 @@ This plugin bridges Moodle's web services with the MCP protocol, enabling AI ass
 1. Go to **Site administration → Server → Web services → External services**
 2. Click **Add** to create a new service
 3. Configure the service:
-   - **Name**: e.g., "MCP Service"
-   - **Short name**: e.g., "mcp_service"
-   - **Enabled**: Yes
-   - **Authorized users only**: Yes (recommended)
+    - **Name**: e.g., "MCP Service"
+    - **Short name**: e.g., "mcp_service"
+    - **Enabled**: Yes
+    - **Authorized users only**: Yes (recommended)
 4. Add the external functions your service should expose
 
 ### 4. Create a Token
@@ -77,8 +81,8 @@ This plugin bridges Moodle's web services with the MCP protocol, enabling AI ass
 1. Go to **Site administration → Server → Web services → Manage tokens**
 2. Click **Add** to create a new token
 3. Select:
-   - **User**: The user this token will authenticate as
-   - **Service**: The service you created above
+    - **User**: The user this token will authenticate as
+    - **Service**: The service you created above
 4. Save and copy the generated token
 
 ### 5. Assign Capability
@@ -92,170 +96,182 @@ Ensure users have the `webservice/mcp:use` capability to access the MCP web serv
 The MCP server endpoint can be accessed in two ways.
 
 **1. Using Authorization header (Bearer token — Recommended):**
+
 ```
 https://your-moodle-site.com/webservice/mcp/server.php
 ```
 
 Add the token to the request header:
+
 ```
 Authorization: Bearer YOUR_TOKEN
 ```
 
 **2. Using query parameter (`wstoken` — legacy fallback):**
+
 ```
 https://your-moodle-site.com/webservice/mcp/server.php?wstoken=YOUR_TOKEN
 ```
 
-> **Security note:** Prefer the `Authorization: Bearer` header whenever your client supports it. Query-string tokens (`?wstoken=...`) may be recorded in web server, reverse proxy, or browser logs. If browser-based MCP clients are not used, consider restricting `Access-Control-Allow-Origin` at your reverse proxy.
+> **Security note:** Prefer the `Authorization: Bearer` header whenever your client supports it. Query-string tokens
+> (`?wstoken=...`) may be recorded in web server, reverse proxy, or browser logs. If browser-based MCP clients are not
+> used, consider restricting `Access-Control-Allow-Origin` at your reverse proxy.
 
 Replace:
+
 - `your-moodle-site.com` with your Moodle domain
 - `YOUR_TOKEN` with the token you generated
-
 
 #### Monitoring
 
 Monitor MCP web service usage through:
-- Standard Moodle logs at **Site administration → Reports → Logs** (filter by **Web service**):
-  - `tools/call` invokes Moodle's core `\core\event\webservice_function_called` event with the external function name.
-  - MCP protocol calls (`initialize`, `notifications/initialized`, `ping`, `tools/list`, `server_info`) are logged via `\core\event\webservice_function_called` as `mcp:<method>`.
 
+- Standard Moodle logs at **Site administration → Reports → Logs** (filter by **Web service**):
+    - `tools/call` invokes Moodle's core `\core\event\webservice_function_called` event with the external function name.
+    - MCP protocol calls (`initialize`, `notifications/initialized`, `ping`, `tools/list`, `server_info`) are logged via
+      `\core\event\webservice_function_called` as `mcp:<method>`.
 
 ### Client Examples
 
 #### 1. Initialize Session
 
 **Request:**
+
 ```json
 {
-   "jsonrpc": "2.0",
-   "method": "initialize",
-   "params": {},
-   "id": 1
+  "jsonrpc": "2.0",
+  "method": "initialize",
+  "params": {},
+  "id": 1
 }
 ```
 
 **Response:**
+
 ```json
 {
-   "jsonrpc": "2.0",
-   "result": {
-      "protocolVersion": "1.0",
-      "serverInfo": {
-         "name": "Moodle MCP Server",
-         "version": "0.1.0"
-      },
-      "capabilities": {
-         "tools": {}
-      }
-   },
-   "id": 1
+  "jsonrpc": "2.0",
+  "result": {
+    "protocolVersion": "1.0",
+    "serverInfo": {
+      "name": "Moodle MCP Server",
+      "version": "0.1.0"
+    },
+    "capabilities": {
+      "tools": {}
+    }
+  },
+  "id": 1
 }
 ```
 
 #### 2. List Available Tools
 
 **Request:**
+
 ```json
 {
-   "jsonrpc": "2.0",
-   "method": "tools/list",
-   "params": {},
-   "id": 2
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "params": {},
+  "id": 2
 }
 ```
 
 **Response:**
+
 ```json
 {
-   "jsonrpc": "2.0",
-   "result": {
-      "tools": [
-         {
-            "name": "core_user_get_users",
-            "description": "Search for users matching the criteria",
-            "inputSchema": {
-               "type": "object",
-               "properties": {
-                  "criteria": {
-                     "type": "array",
-                     "items": {
-                        "type": "object",
-                        "properties": {
-                           "key": {
-                              "type": "string"
-                           },
-                           "value": {
-                              "type": "string"
-                           }
-                        }
-                     }
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "name": "core_user_get_users",
+        "description": "Search for users matching the criteria",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "criteria": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
                   }
-               }
-            },
-            "outputSchema": {
-               "type": "object",
-               "properties": {
-                  "result": {
-                     "type": "object"
-                  }
-               }
+                }
+              }
             }
-         }
-      ]
-   },
-   "id": 2
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "id": 2
 }
 ```
 
 #### 3. Call a Tool
 
 **Request:**
+
 ```json
 {
-   "jsonrpc": "2.0",
-   "method": "tools/call",
-   "params": {
-      "name": "core_user_get_users",
-      "arguments": {
-         "criteria": [
-            {
-               "key": "email",
-               "value": "student@example.com"
-            }
-         ]
-      }
-   },
-   "id": 3
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "core_user_get_users",
+    "arguments": {
+      "criteria": [
+        {
+          "key": "email",
+          "value": "student@example.com"
+        }
+      ]
+    }
+  },
+  "id": 3
 }
 ```
 
 **Response:**
+
 ```json
 {
-   "jsonrpc": "2.0",
-   "result": {
-      "content": [
-         {
-            "type": "text",
-            "text": "{\"result\":{\"users\":[{\"id\":2,\"username\":\"student\",\"firstname\":\"Student\",\"lastname\":\"User\",\"email\":\"student@example.com\"}]}}"
-         }
-      ],
-      "structuredContent": {
-         "result": {
-            "users": [
-               {
-                  "id": 2,
-                  "username": "student",
-                  "firstname": "Student",
-                  "lastname": "User",
-                  "email": "student@example.com"
-               }
-            ]
-         }
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"users\":[{\"id\":2,\"username\":\"student\",\"firstname\":\"Student\",\"lastname\":\"User\",\"email\":\"student@example.com\"}]}}"
       }
-   },
-   "id": 3
+    ],
+    "structuredContent": {
+      "result": {
+        "users": [
+          {
+            "id": 2,
+            "username": "student",
+            "firstname": "Student",
+            "lastname": "User",
+            "email": "student@example.com"
+          }
+        ]
+      }
+    }
+  },
+  "id": 3
 }
 ```
 
@@ -284,19 +300,17 @@ curl -X POST "https://your-moodle-site.com/webservice/mcp/server.php?wstoken=YOU
   }'
 ```
 
-
 ## API Reference
 
 ### Supported MCP Methods
 
-| Method       | Description | Parameters |
-|--------|-------------|------------|
-| `initialize` | Initialize MCP session | None |
-| `notifications/initialized` | Notify MCP session initialization | None |
-| `ping`       | Ping MCP session | None |
-| `tools/list` | List available tools | None |
-| `tools/call` | Invoke a specific tool | `name` (string), `arguments` (object) |
-
+| Method                      | Description                       | Parameters                            |
+|-----------------------------|-----------------------------------|---------------------------------------|
+| `initialize`                | Initialize MCP session            | None                                  |
+| `notifications/initialized` | Notify MCP session initialization | None                                  |
+| `ping`                      | Ping MCP session                  | None                                  |
+| `tools/list`                | List available tools              | None                                  |
+| `tools/call`                | Invoke a specific tool            | `name` (string), `arguments` (object) |
 
 ### Error Responses
 
@@ -304,17 +318,18 @@ Errors follow JSON-RPC 2.0 format:
 
 ```json
 {
-    "jsonrpc": "2.0",
-    "error": {
-        "code": -32600,
-        "message": "Invalid Request",
-        "data": "Missing method"
-    },
-    "id": null
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32600,
+    "message": "Invalid Request",
+    "data": "Missing method"
+  },
+  "id": null
 }
 ```
 
 **Common Error Codes:**
+
 - `-32700`: Parse error (invalid JSON)
 - `-32600`: Invalid request (missing required fields)
 - `-32601`: Method not found
@@ -380,6 +395,7 @@ vendor/bin/phpunit --testsuite webservice_mcp_testsuite
 ### Test Coverage
 
 The plugin includes comprehensive tests for:
+
 - ✅ JSON-RPC 2.0 request parsing and validation
 - ✅ MCP protocol methods (initialize, notifications/initialized, ping, tools/list, tools/call)
 - ✅ Tool discovery and schema generation
@@ -391,17 +407,22 @@ The plugin includes comprehensive tests for:
 ### Common Issues
 
 #### 1. "Web services are not enabled"
+
 **Solution**: Enable web services in **Site administration → Advanced features**
 
 #### 2. "Invalid token"
-**Solution**: 
+
+**Solution**:
+
 - Verify the token is correct
 - Check the token hasn't expired
 - Ensure the service is enabled
 - Confirm the user has appropriate capabilities
 
 #### 3. "Method not found"
+
 **Solution**: Check that the method name is correct:
+
 - `initialize`
 - `notifications/initialized`
 - `ping`
@@ -409,19 +430,23 @@ The plugin includes comprehensive tests for:
 - `tools/call`
 
 #### 4. "Missing tool name"
+
 **Solution**: When using `tools/call`, ensure you provide the `name` parameter:
+
 ```json
 {
-    "method": "tools/call",
-    "params": {
-        "name": "core_user_get_users",
-        "arguments": {}
-    }
+  "method": "tools/call",
+  "params": {
+    "name": "core_user_get_users",
+    "arguments": {}
+  }
 }
 ```
 
 #### 5. Empty tools list
+
 **Solution**:
+
 - Check that your service has functions added
 - Verify the token is associated with the correct service
 - Ensure functions aren't deprecated
@@ -429,9 +454,9 @@ The plugin includes comprehensive tests for:
 ### Logging
 
 MCP requests are logged in Moodle's standard web service logs:
+
 - **Site administration → Reports → Logs**
 - Filter by "Web service" component
-
 
 ## 💖 Support the development of this plugin
 

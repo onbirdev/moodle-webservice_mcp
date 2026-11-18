@@ -502,8 +502,10 @@ class server extends webservice_base_server {
             return -32602;
         }
 
-        if ($ex instanceof dml_missing_record_exception
-                && (($ex->tablename ?? '') === 'external_functions' || ($this->is_tool_call() && $this->function === null))) {
+        if (
+            $ex instanceof dml_missing_record_exception
+            && (($ex->tablename ?? '') === 'external_functions' || ($this->is_tool_call() && $this->function === null))
+        ) {
             return -32601;
         }
 
@@ -519,17 +521,19 @@ class server extends webservice_base_server {
             if ($errorcode === 'err_missing_tool_name') {
                 return -32602;
             }
-            if (in_array($errorcode, [
-                'err_empty_request',
-                'err_invalid_jsonrpc',
-                'err_missing_method',
-                'invalidtoken',
-                'wsaccessuserdeleted',
-                'wsaccessuserunconfirmed',
-                'wsaccessusersuspended',
-                'wsaccessuserexpired',
-                'wsaccessusernologin',
-            ], true)) {
+            if (
+                in_array($errorcode, [
+                    'err_empty_request',
+                    'err_invalid_jsonrpc',
+                    'err_missing_method',
+                    'invalidtoken',
+                    'wsaccessuserdeleted',
+                    'wsaccessuserunconfirmed',
+                    'wsaccessusersuspended',
+                    'wsaccessuserexpired',
+                    'wsaccessusernologin',
+                ], true)
+            ) {
                 return -32600;
             }
         }
