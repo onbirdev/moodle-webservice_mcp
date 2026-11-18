@@ -583,6 +583,64 @@ final class server_test extends advanced_testcase {
     }
 
     /**
+     * Invoke send_initialize_response() and return the decoded JSON-RPC result.
+     *
+     * @return array
+     */
+    private function get_initialize_result(): array {
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+        $reflection = new ReflectionClass($server);
+
+        $mcprequestprop = $reflection->getProperty('mcprequest');
+        $mcprequestprop->setAccessible(true);
+        $mcprequestprop->setValue($server, new request([
+            'jsonrpc' => '2.0',
+            'method' => 'initialize',
+            'id' => 1,
+        ]));
+
+        $method = $reflection->getMethod('send_initialize_response');
+        $method->setAccessible(true);
+
+        ob_start();
+        $method->invoke($server);
+        $output = ob_get_clean();
+
+        $decoded = json_decode($output, true);
+        $this->assertSame(1, $decoded['id']);
+
+        return $decoded['result'];
+    }
+
+    /**
+     * Test the initialize response omits instructions when the setting is empty.
+     */
+    public function test_initialize_response_without_instructions(): void {
+        $this->resetAfterTest(true);
+
+        $result = $this->get_initialize_result();
+        $this->assertArrayNotHasKey('instructions', $result);
+
+        set_config('instructions', "  \n ", 'webservice_mcp');
+        $result = $this->get_initialize_result();
+        $this->assertArrayNotHasKey('instructions', $result);
+    }
+
+    /**
+     * Test the initialize response sends the configured instructions.
+     */
+    public function test_initialize_response_with_instructions(): void {
+        $this->resetAfterTest(true);
+
+        $instructions = "Read before you write.\nUpload files to /webservice/upload.php first.";
+        set_config('instructions', "\n" . $instructions . "\n", 'webservice_mcp');
+
+        $result = $this->get_initialize_result();
+        $this->assertSame($instructions, $result['instructions']);
+        $this->assertSame('Moodle MCP Server', $result['serverInfo']['name']);
+    }
+
+    /**
      * Test send_response cleans return values using core external_api::clean_returnvalue().
      */
     public function test_send_response_cleans_return_value(): void {
