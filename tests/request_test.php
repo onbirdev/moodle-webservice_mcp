@@ -220,4 +220,39 @@ final class request_test extends advanced_testcase {
         $this->assertIsArray($request->params['arguments']);
         $this->assertEquals('value1', $request->params['arguments']['param1']);
     }
+
+    /**
+     * Test request::from_json with valid JSON payload.
+     */
+    public function test_from_json_valid(): void {
+        $this->resetAfterTest(true);
+
+        $request = request::from_json('{"jsonrpc":"2.0","method":"ping","id":9}');
+
+        $this->assertSame('2.0', $request->jsonrpc);
+        $this->assertSame('ping', $request->method);
+        $this->assertSame(9, $request->id);
+    }
+
+    /**
+     * Test request::from_json rejects empty input.
+     */
+    public function test_from_json_empty(): void {
+        $this->resetAfterTest(true);
+
+        $this->expectException(moodle_exception::class);
+        $this->expectExceptionMessage('Request body is empty');
+        request::from_json('');
+    }
+
+    /**
+     * Test request::from_json rejects malformed JSON.
+     */
+    public function test_from_json_invalid(): void {
+        $this->resetAfterTest(true);
+
+        $this->expectException(moodle_exception::class);
+        $this->expectExceptionMessage('JSON parsing error');
+        request::from_json('{invalid json');
+    }
 }

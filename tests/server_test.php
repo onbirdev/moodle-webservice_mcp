@@ -17,10 +17,19 @@
 namespace webservice_mcp;
 
 use advanced_testcase;
-use moodle_exception;
+use context_system;
+use core\event\webservice_function_called;
+use core\exception\invalid_parameter_exception;
+use core\exception\required_capability_exception;
+use core_external\external_single_structure;
+use core_external\external_value;
+use dml_missing_record_exception;
 use Exception;
+use moodle_exception;
 use ReflectionClass;
+use stdClass;
 use TypeError;
+use webservice_access_exception;
 use webservice_mcp\local\request;
 use webservice_mcp\local\server;
 
@@ -389,5 +398,229 @@ final class server_test extends advanced_testcase {
         $this->assertEquals('2025-03-26', $protocolversion);
         $this->assertEquals('Moodle MCP Server', $servername);
         $this->assertEquals('1.0.0', $serverversion);
+    }
+
+    /**
+     * Test OPTIONS preflight completes without authentication.
+     */
+    public function test_options_preflight_skips_authentication(): void {
+        $this->resetAfterTest(true);
+
+        $previousmethod = $_SERVER['REQUEST_METHOD'] ?? null;
+        $_SERVER['REQUEST_METHOD'] = 'OPTIONS';
+
+        try {
+            $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+            $server->run();
+
+            $reflection = new ReflectionClass($server);
+            $statusprop = $reflection->getProperty('httpstatus');
+            $statusprop->setAccessible(true);
+            $parsedprop = $reflection->getProperty('requestparsed');
+            $parsedprop->setAccessible(true);
+
+            $this->assertSame(200, $statusprop->getValue($server));
+            $this->assertFalse($parsedprop->getValue($server));
+        } finally {
+            if ($previousmethod === null) {
+                unset($_SERVER['REQUEST_METHOD']);
+            } else {
+                $_SERVER['REQUEST_METHOD'] = $previousmethod;
+            }
+        }
+    }
+
+    /**
+     * Test generate_error maps Moodle exceptions to appropriate JSON-RPC 2.0 codes.
+     */
+    public function test_generate_error_maps_jsonrpc_codes(): void {
+        $this->resetAfterTest(true);
+
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+        $reflection = new ReflectionClass($server);
+        $method = $reflection->getMethod('generate_error');
+        $method->setAccessible(true);
+
+        $invalidparam = $method->invoke($server, new invalid_parameter_exception('Bad param'));
+        $this->assertSame(-32602, $invalidparam['error']['code']);
+
+        $unknowntool = $method->invoke($server, new dml_missing_record_exception('external_functions'));
+        $this->assertSame(-32601, $unknowntool['error']['code']);
+
+        $missingcourse = $method->invoke($server, new dml_missing_record_exception('course'));
+        $this->assertSame(-32603, $missingcourse['error']['code']);
+
+        // Simulate tools/call lookup failure when debugging is disabled (tablename becomes null).
+        $mcprequestprop = $reflection->getProperty('mcprequest');
+        $mcprequestprop->setAccessible(true);
+        $mcprequestprop->setValue($server, new request([
+            'jsonrpc' => '2.0',
+            'method' => 'tools/call',
+            'id' => 1,
+        ]));
+        $unknowntoolnodebug = $method->invoke($server, new dml_missing_record_exception(''));
+        $this->assertSame(-32601, $unknowntoolnodebug['error']['code']);
+
+        // Reset request for remaining checks.
+        $mcprequestprop->setValue($server, null);
+
+        $wsaccess = $method->invoke($server, new webservice_access_exception('Access denied'));
+        $this->assertSame(-32600, $wsaccess['error']['code']);
+
+        $capfail = $method->invoke(
+            $server,
+            new required_capability_exception(context_system::instance(), 'moodle/site:config', 'nopermissions', '')
+        );
+        $this->assertSame(-32600, $capfail['error']['code']);
+
+        $invalidjson = $method->invoke($server, new moodle_exception('err_invalid_json', 'webservice_mcp'));
+        $this->assertSame(-32700, $invalidjson['error']['code']);
+
+        $missingtool = $method->invoke($server, new moodle_exception('err_missing_tool_name', 'webservice_mcp'));
+        $this->assertSame(-32602, $missingtool['error']['code']);
+
+        $invalidtoken = $method->invoke($server, new moodle_exception('invalidtoken', 'webservice'));
+        $this->assertSame(-32600, $invalidtoken['error']['code']);
+    }
+
+    /**
+     * Test handle_mcp_method logs webservice_function_called events for MCP methods.
+     */
+    public function test_handle_mcp_method_logs_events(): void {
+        global $DB, $USER;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $serviceid = $DB->insert_record('external_services', (object) [
+            'name' => 'Event Log Service',
+            'enabled' => 1,
+            'restrictedusers' => 0,
+            'component' => null,
+            'timecreated' => time(),
+            'timemodified' => time(),
+            'shortname' => 'event_log_service',
+            'downloadfiles' => 0,
+            'uploadfiles' => 0,
+        ]);
+
+        $token = bin2hex(random_bytes(32));
+        $DB->insert_record('external_tokens', (object) [
+            'token' => $token,
+            'userid' => $USER->id,
+            'tokentype' => EXTERNAL_TOKEN_PERMANENT,
+            'contextid' => context_system::instance()->id,
+            'creatorid' => $USER->id,
+            'timecreated' => time(),
+            'externalserviceid' => $serviceid,
+        ]);
+
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+        $reflection = new ReflectionClass($server);
+
+        $httpmethodprop = $reflection->getProperty('httpmethod');
+        $httpmethodprop->setAccessible(true);
+        $httpmethodprop->setValue($server, 'POST');
+
+        $mcprequestprop = $reflection->getProperty('mcprequest');
+        $mcprequestprop->setAccessible(true);
+
+        $tokenprop = $reflection->getProperty('token');
+        $tokenprop->setAccessible(true);
+        $tokenprop->setValue($server, $token);
+
+        $serviceidprop = $reflection->getProperty('restricted_serviceid');
+        $serviceidprop->setAccessible(true);
+        $serviceidprop->setValue($server, $serviceid);
+
+        $useridprop = $reflection->getProperty('userid');
+        $useridprop->setAccessible(true);
+        $useridprop->setValue($server, $USER->id);
+
+        $contextprop = $reflection->getProperty('restricted_context');
+        $contextprop->setAccessible(true);
+        $contextprop->setValue($server, context_system::instance());
+
+        $handlemcp = $reflection->getMethod('handle_mcp_method');
+        $handlemcp->setAccessible(true);
+
+        $sink = $this->redirectEvents();
+        try {
+            foreach (['initialize', 'ping', 'notifications/initialized', 'tools/list'] as $mcpmethod) {
+                $mcprequestprop->setValue($server, new request([
+                    'jsonrpc' => '2.0',
+                    'method' => $mcpmethod,
+                    'id' => 1,
+                ]));
+                ob_start();
+                $handlemcp->invoke($server);
+                ob_end_clean();
+            }
+
+            $httpmethodprop->setValue($server, 'GET');
+            ob_start();
+            $handlemcp->invoke($server);
+            ob_end_clean();
+        } finally {
+            $events = $sink->get_events();
+            $sink->close();
+        }
+
+        $loggedfunctions = array_map(
+            static fn(webservice_function_called $e): string => $e->other['function'],
+            array_values(array_filter(
+                $events,
+                static fn($e): bool => $e instanceof webservice_function_called
+            ))
+        );
+
+        $this->assertSame([
+            'mcp:initialize',
+            'mcp:ping',
+            'mcp:notifications/initialized',
+            'mcp:tools/list',
+            'mcp:server_info',
+        ], $loggedfunctions);
+    }
+
+    /**
+     * Test send_response cleans return values using core external_api::clean_returnvalue().
+     */
+    public function test_send_response_cleans_return_value(): void {
+        $this->resetAfterTest(true);
+
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+        $reflection = new ReflectionClass($server);
+
+        $mcprequestprop = $reflection->getProperty('mcprequest');
+        $mcprequestprop->setAccessible(true);
+        $mcprequestprop->setValue($server, new request([
+            'jsonrpc' => '2.0',
+            'method' => 'tools/call',
+            'id' => 7,
+        ]));
+
+        $functionprop = $reflection->getProperty('function');
+        $functionprop->setAccessible(true);
+        $function = new stdClass();
+        $function->returns_desc = new external_single_structure([
+            'ok' => new external_value(PARAM_BOOL, 'Success flag'),
+        ]);
+        $functionprop->setValue($server, $function);
+
+        $returnsprop = $reflection->getProperty('returns');
+        $returnsprop->setAccessible(true);
+        $returnsprop->setValue($server, ['ok' => 1]);
+
+        $sendresponse = $reflection->getMethod('send_response');
+        $sendresponse->setAccessible(true);
+
+        ob_start();
+        $sendresponse->invoke($server);
+        $output = ob_get_clean();
+
+        $decoded = json_decode($output, true);
+        $this->assertSame('2.0', $decoded['jsonrpc']);
+        $this->assertSame(7, $decoded['id']);
+        $this->assertTrue($decoded['result']['structuredContent']['result']['ok']);
     }
 }

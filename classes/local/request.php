@@ -122,6 +122,27 @@ class request {
             );
         }
 
+        return self::from_json($raw);
+    }
+
+    /**
+     * Create an MCP request object from a raw JSON string.
+     *
+     * @param string $raw Raw JSON string.
+     * @return self A validated request instance.
+     * @throws moodle_exception If the string is empty, JSON decoding fails, or the request format is invalid.
+     */
+    public static function from_json(string $raw): self {
+        if ($raw === '') {
+            throw new moodle_exception(
+                'err_empty_request',
+                'webservice_mcp',
+                '',
+                null,
+                'Request body is empty'
+            );
+        }
+
         $data = json_decode($raw, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {

@@ -18,17 +18,15 @@ declare(strict_types=1);
 
 namespace webservice_mcp\local;
 
+use core\event\webservice_function_called;
 use core\exception\invalid_parameter_exception;
-use core\exception\invalid_response_exception;
 use core\exception\moodle_exception;
+use core\exception\required_capability_exception;
 use core_external\external_api;
-use core_external\external_description;
-use core_external\external_multiple_structure;
-use core_external\external_single_structure;
-use core_external\external_value;
-use Exception;
+use dml_missing_record_exception;
 use stdClass;
 use Throwable;
+use webservice_access_exception;
 use webservice_base_server;
 
 /**
@@ -60,6 +58,12 @@ class server extends webservice_base_server {
     /** @var request|null Parsed MCP request object. */
     protected ?request $mcprequest = null;
 
+    /** @var bool Whether parse_request() has already run for this request lifecycle. */
+    protected bool $requestparsed = false;
+
+    /** @var int Last HTTP status code set by the server. */
+    protected int $httpstatus = 200;
+
     /**
      * Constructor.
      *
@@ -80,6 +84,13 @@ class server extends webservice_base_server {
      */
     public function run(): void {
         $this->set_headers();
+        $this->httpmethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+        // Handle CORS preflight before authentication (browsers never send credentials on OPTIONS).
+        if ($this->httpmethod === 'OPTIONS') {
+            $this->set_http_status(200);
+            return;
+        }
 
         // Allocate sufficient memory for complex operations.
         raise_memory_limit(MEMORY_EXTRA);
@@ -115,17 +126,25 @@ class server extends webservice_base_server {
      * @return void
      */
     protected function parse_request(): void {
+        if ($this->requestparsed) {
+            return;
+        }
+        $this->requestparsed = true;
+
         parent::set_web_service_call_settings();
 
         $this->token = $this->extract_token();
         $this->httpmethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-        if ($this->httpmethod === 'POST' && !request::is_raw_input_empty()) {
-            $this->mcprequest = request::from_raw_input();
+        if ($this->httpmethod === 'POST') {
+            $raw = file_get_contents('php://input');
+            if ($raw !== false && $raw !== '') {
+                $this->mcprequest = request::from_json($raw);
 
-            // Handle MCP tool invocation.
-            if ($this->is_tool_call()) {
-                $this->extract_tool_call();
+                // Handle MCP tool invocation.
+                if ($this->is_tool_call()) {
+                    $this->extract_tool_call();
+                }
             }
         }
     }
@@ -198,48 +217,45 @@ class server extends webservice_base_server {
      * Handle MCP-specific endpoints: CORS preflight, server info (GET),
      * initialize, notifications/initialized, ping and tools/list (POST).
      *
-     * Exits after sending a response.
-     *
      * @return void
      */
     protected function handle_mcp_method(): void {
-        // Handle OPTIONS for CORS preflight.
-        if ($this->httpmethod === 'OPTIONS') {
-            http_response_code(200);
-            exit;
-        }
-
         // Handle GET for basic server info (not JSON-RPC wrapped).
         if ($this->httpmethod === 'GET') {
+            $this->log_mcp_call('server_info');
             $this->send_server_info();
-            exit;
+            return;
         }
 
         if (!($this->mcprequest instanceof request) || !isset($this->mcprequest->method)) {
             // Bad request.
-            http_response_code(400);
+            $this->set_http_status(400);
             echo $this->safe_json_encode([
                 'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
                 'error' => ['code' => -32600, 'message' => 'Invalid Request'],
                 'id' => $this->mcprequest->id ?? null,
             ]);
-            exit;
+            return;
         }
 
         switch ($this->mcprequest->method) {
             case 'initialize':
+                $this->log_mcp_call('initialize');
                 $this->send_initialize_response();
                 break;
 
             case 'notifications/initialized':
+                $this->log_mcp_call('notifications/initialized');
                 $this->handle_initialized_notification();
                 break;
 
             case 'ping':
+                $this->log_mcp_call('ping');
                 $this->send_ping_response();
                 break;
 
             case 'tools/list':
+                $this->log_mcp_call('tools/list');
                 $this->send_tools_list_response();
                 break;
 
@@ -252,6 +268,22 @@ class server extends webservice_base_server {
                 ];
                 echo $this->safe_json_encode($payload);
         }
+    }
+
+    /**
+     * Trigger a Moodle web service event for MCP protocol methods so discovery
+     * and session requests are recorded in the standard audit logs.
+     *
+     * @param string $method The MCP method name.
+     * @return void
+     */
+    protected function log_mcp_call(string $method): void {
+        $event = webservice_function_called::create([
+            'other' => [
+                'function' => 'mcp:' . $method,
+            ],
+        ]);
+        $event->trigger();
     }
 
     /**
@@ -307,7 +339,7 @@ class server extends webservice_base_server {
      * @return void
      */
     protected function handle_initialized_notification(): void {
-        http_response_code(204);
+        $this->set_http_status(204);
     }
 
     /**
@@ -329,7 +361,15 @@ class server extends webservice_base_server {
      * @return void
      */
     protected function send_tools_list_response(): void {
-        $tools = tool_provider::get_tools($this->token);
+        if (!empty($this->restricted_serviceid) && !empty($this->userid) && $this->restricted_context !== null) {
+            $tools = tool_provider::get_tools_for_service(
+                (int) $this->restricted_serviceid,
+                (int) $this->userid,
+                $this->restricted_context
+            );
+        } else {
+            $tools = tool_provider::get_tools($this->token);
+        }
 
         $payload = [
             'jsonrpc' => $this->mcprequest->jsonrpc,
@@ -356,7 +396,7 @@ class server extends webservice_base_server {
 
         try {
             if ($this->function->returns_desc !== null) {
-                $validatedvalues = self::clean_response(
+                $validatedvalues = external_api::clean_returnvalue(
                     $this->function->returns_desc,
                     $this->returns
                 );
@@ -443,7 +483,7 @@ class server extends webservice_base_server {
         return [
             'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
             'error' => [
-                'code' => -32603,
+                'code' => $this->get_jsonrpc_error_code($ex),
                 'message' => $ex->getMessage(),
                 'data' => $errordata,
             ],
@@ -452,11 +492,74 @@ class server extends webservice_base_server {
     }
 
     /**
+     * Map an exception to a standard JSON-RPC 2.0 error code.
+     *
+     * @param Throwable $ex The thrown exception or error.
+     * @return int JSON-RPC 2.0 error code.
+     */
+    protected function get_jsonrpc_error_code(Throwable $ex): int {
+        if ($ex instanceof invalid_parameter_exception) {
+            return -32602;
+        }
+
+        if ($ex instanceof dml_missing_record_exception
+                && (($ex->tablename ?? '') === 'external_functions' || ($this->is_tool_call() && $this->function === null))) {
+            return -32601;
+        }
+
+        if ($ex instanceof webservice_access_exception || $ex instanceof required_capability_exception) {
+            return -32600;
+        }
+
+        if ($ex instanceof moodle_exception) {
+            $errorcode = $ex->errorcode ?? '';
+            if ($errorcode === 'err_invalid_json') {
+                return -32700;
+            }
+            if ($errorcode === 'err_missing_tool_name') {
+                return -32602;
+            }
+            if (in_array($errorcode, [
+                'err_empty_request',
+                'err_invalid_jsonrpc',
+                'err_missing_method',
+                'invalidtoken',
+                'wsaccessuserdeleted',
+                'wsaccessuserunconfirmed',
+                'wsaccessusersuspended',
+                'wsaccessuserexpired',
+                'wsaccessusernologin',
+            ], true)) {
+                return -32600;
+            }
+        }
+
+        return -32603;
+    }
+
+    /**
+     * Set HTTP status code if response headers have not yet been sent.
+     *
+     * @param int $code HTTP status code.
+     * @return void
+     */
+    protected function set_http_status(int $code): void {
+        $this->httpstatus = $code;
+        if (!headers_sent()) {
+            http_response_code($code);
+        }
+    }
+
+    /**
      * Set JSON/CORS and caching headers.
      *
      * @return void
      */
     protected function set_headers(): void {
+        if (headers_sent()) {
+            return;
+        }
+
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: private, must-revalidate, max-age=0');
         header('Expires: ' . gmdate('D, d M Y H:i:s', 0) . ' GMT');
@@ -506,99 +609,5 @@ class server extends webservice_base_server {
             ' Debug: ' . ($info->debuginfo ?? '') . "\n" .
             format_backtrace($info->backtrace ?? [], true);
         debugging($message);
-    }
-
-    /**
-     * Clean response.
-     *
-     * @param external_description $description description of the return values
-     * @param mixed $response the actual response
-     * @return mixed response with added defaults for optional items, invalid_response_exception thrown if any problem found
-     *
-     * @see external_api::clean_returnvalue()
-     * @author 2010 Jerome Mouneyrac
-     */
-    public static function clean_response(external_description $description, $response) {
-        if ($response === null && $description->allownull == NULL_ALLOWED) {
-            return null;
-        }
-        if ($description instanceof external_value) {
-            if (is_array($response) || is_object($response)) {
-                throw new invalid_response_exception('Scalar type expected, array or object received.');
-            }
-
-            if ($description->type == PARAM_BOOL) {
-                // Special case for PARAM_BOOL - we want true/false instead of the usual 1/0 - we can not be too strict here.
-                if (is_bool($response) || $response === 0 || $response === 1 || $response === '0' || $response === '1') {
-                    return (bool) $response;
-                }
-            }
-            $responsetype = gettype($response);
-            $debuginfo = "Invalid external api response: the value is \"{$response}\" of PHP type \"{$responsetype}\", ";
-            $debuginfo .= "the server was expecting \"{$description->type}\" type";
-            try {
-                return validate_param($response, $description->type, $description->allownull, $debuginfo);
-            } catch (invalid_parameter_exception $e) {
-                // Proper exception name, to be recursively catched to build the path to the faulty attribute.
-                throw new invalid_response_exception($e->debuginfo);
-            }
-        } else if ($description instanceof external_single_structure) {
-            if (!is_array($response) && !is_object($response)) {
-                throw new invalid_response_exception(
-                // phpcs:ignore moodle.PHP.ForbiddenFunctions.Found
-                    "Only arrays/objects accepted. The bad value is: '" . print_r($response, true) . "'"
-                );
-            }
-
-            // Cast objects into arrays.
-            if (is_object($response)) {
-                $response = (array) $response;
-            }
-
-            $result = [];
-            foreach ($description->keys as $key => $subdesc) {
-                if (!array_key_exists($key, $response)) {
-                    if ($subdesc->required == VALUE_REQUIRED) {
-                        throw new invalid_response_exception(
-                            "Error in response - Missing following required key in a single structure: {$key}"
-                        );
-                    }
-                    if ($subdesc instanceof external_value) {
-                        if ($subdesc->required == VALUE_DEFAULT) {
-                            try {
-                                $result[$key] = self::clean_response($subdesc, $subdesc->default);
-                            } catch (invalid_response_exception $e) {
-                                // Build the path to the faulty attribute.
-                                throw new invalid_response_exception("{$key} => " . $e->getMessage() . ': ' . $e->debuginfo);
-                            }
-                        }
-                    }
-                } else {
-                    try {
-                        $result[$key] = self::clean_response($subdesc, $response[$key]);
-                    } catch (invalid_response_exception $e) {
-                        // Build the path to the faulty attribute.
-                        throw new invalid_response_exception("{$key} => " . $e->getMessage() . ': ' . $e->debuginfo);
-                    }
-                }
-                unset($response[$key]);
-            }
-
-            return $result;
-        } else if ($description instanceof external_multiple_structure) {
-            if (!is_array($response)) {
-                throw new invalid_response_exception(
-                // phpcs:ignore moodle.PHP.ForbiddenFunctions.Found
-                    "Only arrays accepted. The bad value is: '" . print_r($response, true) . "'"
-                );
-            }
-            $result = [];
-            foreach ($response as $param) {
-                $result[] = self::clean_response($description->content, $param);
-            }
-            return $result;
-        } else {
-            throw new invalid_response_exception('Invalid external api response description');
-        }
     }
 }
