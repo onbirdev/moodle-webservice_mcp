@@ -91,12 +91,7 @@ Ensure users have the `webservice/mcp:use` capability to access the MCP web serv
 
 The MCP server endpoint can be accessed in two ways.
 
-**1. Using query parameter (wstoken):**
-```
-https://your-moodle-site.com/webservice/mcp/server.php?wstoken=YOUR_TOKEN
-```
-
-**2. Using Authorization header (Bearer token):**
+**1. Using Authorization header (Bearer token — Recommended):**
 ```
 https://your-moodle-site.com/webservice/mcp/server.php
 ```
@@ -106,6 +101,13 @@ Add the token to the request header:
 Authorization: Bearer YOUR_TOKEN
 ```
 
+**2. Using query parameter (`wstoken` — legacy fallback):**
+```
+https://your-moodle-site.com/webservice/mcp/server.php?wstoken=YOUR_TOKEN
+```
+
+> **Security note:** Prefer the `Authorization: Bearer` header whenever your client supports it. Query-string tokens (`?wstoken=...`) may be recorded in web server, reverse proxy, or browser logs. If browser-based MCP clients are not used, consider restricting `Access-Control-Allow-Origin` at your reverse proxy.
+
 Replace:
 - `your-moodle-site.com` with your Moodle domain
 - `YOUR_TOKEN` with the token you generated
@@ -114,7 +116,9 @@ Replace:
 #### Monitoring
 
 Monitor MCP web service usage through:
-- Standard Moodle logs at **Site administration → Reports → Logs**
+- Standard Moodle logs at **Site administration → Reports → Logs** (filter by **Web service**):
+  - `tools/call` invokes Moodle's core `\core\event\webservice_function_called` event with the external function name.
+  - MCP protocol calls (`initialize`, `notifications/initialized`, `ping`, `tools/list`, `server_info`) are logged via `\core\event\webservice_function_called` as `mcp:<method>`.
 
 
 ### Client Examples
@@ -258,7 +262,8 @@ Monitor MCP web service usage through:
 #### Using cURL
 
 ```bash
-curl -X POST "https://your-moodle-site.com/webservice/mcp/server.php?wstoken=YOUR_TOKEN" \
+curl -X POST "https://your-moodle-site.com/webservice/mcp/server.php" \
+  -H 'Authorization: Bearer YOUR_TOKEN' \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -269,8 +274,7 @@ curl -X POST "https://your-moodle-site.com/webservice/mcp/server.php?wstoken=YOU
 ```
 
 ```bash
-curl -X POST "https://your-moodle-site.com/webservice/mcp/server.php" \
-  -H 'Authorization: Bearer YOUR_TOKEN' \
+curl -X POST "https://your-moodle-site.com/webservice/mcp/server.php?wstoken=YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",

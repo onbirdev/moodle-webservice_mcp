@@ -1,6 +1,17 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+- Security: Enforce Moodle web service authorization (`enabled`, `restrictedusers`, `validuntil`, `iprestriction`, `requiredcapability`, and token restrictions) in `tool_provider::get_tools()` / `get_tools_for_service()`
+- Fix: Handle CORS preflight `OPTIONS` requests before authentication in `server::run()`
+- Fix: Map Moodle exceptions (`invalid_parameter_exception`, unknown tool, `webservice_access_exception`, `required_capability_exception`, JSON parse errors) to standard JSON-RPC 2.0 error codes (`-32700`, `-32600`, `-32601`, `-32602`, `-32603`)
+- Fix: Remove forked `server::clean_response()` and delegate return value validation to Moodle core `external_api::clean_returnvalue()`
+- Fix: Avoid duplicate `php://input` reads and redundant `parse_request()` execution on `tools/call`
+- Feat: Trigger `\core\event\webservice_function_called` (`mcp:<method>`) for MCP protocol and server info requests
+- Chore: Expand GitHub Actions CI matrix to Moodle 4.5, 5.0, and 5.1 with PHP 8.1–8.4
+- Docs: Recommend `Authorization: Bearer` over `?wstoken=` and clarify audit logging in `README.md`
+- Test: Add negative ACL tests for `tool_provider::get_tools()` and unit tests for `OPTIONS` preflight, JSON-RPC error code mapping, MCP event logging, `external_api::clean_returnvalue()`, and `request::from_json()`
+
 ## Version 0.7.0 (2026111800)
 - Fix: Omit `outputSchema` for void-returning external functions and serialize empty/list-keyed `properties` as JSON objects (`{}`) (#8, #5)
 - Fix: Apply `VALUE_REQUIRED` and `NULL_ALLOWED` to `external_single_structure` and `external_multiple_structure`, and map `PARAM_LOCALISEDFLOAT` to `number` (#5)
