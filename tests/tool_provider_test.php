@@ -17,6 +17,7 @@
 namespace webservice_mcp;
 
 use context_system;
+use core_external\external_api;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
@@ -250,6 +251,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $this->assertEquals('object', $coursesschema['items']['type']);
         $this->assertArrayHasKey('id', $coursesschema['items']['properties']);
         $this->assertArrayHasKey('title', $coursesschema['items']['properties']);
+        $this->assertEquals(['user', 'courses'], $schema['required']);
     }
 
     /**
@@ -264,7 +266,9 @@ final class tool_provider_test extends externallib_advanced_testcase {
 
         $this->assertEquals('string', $method->invoke(null, new external_value(PARAM_TEXT)));
         $this->assertEquals('integer', $method->invoke(null, new external_value(PARAM_INT)));
+        $this->assertEquals('string', $method->invoke(null, new external_value(PARAM_SEQUENCE)));
         $this->assertEquals('number', $method->invoke(null, new external_value(PARAM_FLOAT)));
+        $this->assertEquals('number', $method->invoke(null, new external_value(PARAM_LOCALISEDFLOAT)));
         $this->assertEquals('boolean', $method->invoke(null, new external_value(PARAM_BOOL)));
         $this->assertEquals('object', $method->invoke(null, new external_single_structure([])));
         $this->assertEquals('array', $method->invoke(null, new external_multiple_structure(
@@ -298,7 +302,7 @@ final class tool_provider_test extends externallib_advanced_testcase {
         $param = new external_single_structure([]);
 
         $reflection = new ReflectionClass(tool_provider::class);
-        $method = $reflection->getMethod('generate_schema');
+        $method = $reflection->getMethod('build_schema');
         $method->setAccessible(true);
 
         $schema = $method->invoke(null, $param);
@@ -413,5 +417,157 @@ final class tool_provider_test extends externallib_advanced_testcase {
 
         $encoded = json_encode($tool, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString('"properties":[]', $encoded);
+    }
+
+    /**
+     * Test structure nullability and requiredness are represented independently.
+     */
+    public function test_generate_schema_nullable_structures(): void {
+        $this->resetAfterTest(true);
+
+        $param = new external_single_structure([
+            'optionalobject' => new external_single_structure(
+                [],
+                'Optional nullable object',
+                VALUE_OPTIONAL,
+                null,
+                NULL_ALLOWED
+            ),
+            'requiredarray' => new external_multiple_structure(
+                new external_value(PARAM_TEXT, 'Item', VALUE_REQUIRED, null, NULL_NOT_ALLOWED),
+                'Required nullable array',
+                VALUE_REQUIRED,
+                null,
+                NULL_ALLOWED
+            ),
+        ]);
+
+        $reflection = new ReflectionClass(tool_provider::class);
+        $method = $reflection->getMethod('build_schema');
+        $method->setAccessible(true);
+        $schema = $method->invoke(null, $param);
+
+        $this->assertSame(['object', 'null'], $schema['properties']['optionalobject']['type']);
+        $this->assertSame(['array', 'null'], $schema['properties']['requiredarray']['type']);
+        $this->assertSame(['requiredarray'], $schema['required']);
+        $this->assertEquals(new stdClass(), $schema['properties']['optionalobject']['properties']);
+        $this->assertSame('string', $schema['properties']['requiredarray']['items']['type']);
+    }
+
+    /**
+     * Test every installed external function produces draft 2020-12 compliant schemas.
+     */
+    public function test_all_exposed_tool_schemas_are_draft_2020_12(): void {
+        global $DB, $USER;
+        $this->resetAfterTest(true);
+        $this->setAdminUser();
+
+        $functionrecords = $DB->get_records('external_functions', null, 'name', 'name');
+        $this->assertNotEmpty($functionrecords);
+
+        $service = new stdClass();
+        $service->name = 'MCP schema validation service';
+        $service->enabled = 1;
+        $service->restrictedusers = 0;
+        $service->component = null;
+        $service->timecreated = time();
+        $service->timemodified = time();
+        $service->shortname = 'mcp_schema_' . bin2hex(random_bytes(8));
+        $service->downloadfiles = 0;
+        $service->uploadfiles = 0;
+        $serviceid = $DB->insert_record('external_services', $service);
+
+        foreach (array_keys($functionrecords) as $functionname) {
+            $function = new stdClass();
+            $function->externalserviceid = $serviceid;
+            $function->functionname = $functionname;
+            $DB->insert_record('external_services_functions', $function);
+        }
+
+        $token = new stdClass();
+        $token->token = bin2hex(random_bytes(32));
+        $token->userid = $USER->id;
+        $token->tokentype = EXTERNAL_TOKEN_PERMANENT;
+        $token->contextid = context_system::instance()->id;
+        $token->creatorid = $USER->id;
+        $token->timecreated = time();
+        $token->externalserviceid = $serviceid;
+        $DB->insert_record('external_tokens', $token);
+
+        $tools = tool_provider::get_tools($token->token);
+        $this->assertNotEmpty($tools);
+
+        foreach ($tools as $tool) {
+            $this->assertSame('object', $tool['inputSchema']['type'], $tool['name']);
+            $this->assertArrayHasKey('properties', $tool['inputSchema'], $tool['name']);
+
+            $this->assert_valid_tool_schema($tool['inputSchema'], $tool['name'] . ' inputSchema');
+            if (array_key_exists('outputSchema', $tool)) {
+                $this->assert_valid_tool_schema($tool['outputSchema'], $tool['name'] . ' outputSchema');
+            } else {
+                $info = external_api::external_function_info($tool['name']);
+                $this->assertNull($info->returns_desc, $tool['name'] . ' omitted outputSchema unexpectedly');
+            }
+        }
+    }
+
+    /**
+     * Assert that a tool schema, as serialised for MCP clients, is valid JSON Schema draft 2020-12.
+     *
+     * @param array $schema The schema produced by the tool provider.
+     * @param string $path Location of the schema, used in failure messages.
+     */
+    private function assert_valid_tool_schema(array $schema, string $path): void {
+        $json = json_encode($schema, JSON_THROW_ON_ERROR);
+        $this->assert_valid_schema_node(json_decode($json, false, 512, JSON_THROW_ON_ERROR), $path);
+    }
+
+    /**
+     * Recursively validate a decoded schema node against draft 2020-12 rules.
+     *
+     * @param mixed $node The decoded schema node.
+     * @param string $path Location of the node, used in failure messages.
+     */
+    private function assert_valid_schema_node(mixed $node, string $path): void {
+        $this->assertInstanceOf(stdClass::class, $node, "{$path} must be a JSON object");
+
+        $keywords = ['type', 'description', 'default', 'properties', 'required', 'items'];
+        foreach (array_keys(get_object_vars($node)) as $keyword) {
+            $this->assertContains($keyword, $keywords, "{$path} has an unexpected keyword");
+        }
+
+        if (property_exists($node, 'type')) {
+            $types = is_array($node->type) ? $node->type : [$node->type];
+            $this->assertNotEmpty($types, "{$path}.type must not be empty");
+            foreach ($types as $type) {
+                $this->assertContains(
+                    $type,
+                    ['null', 'boolean', 'object', 'array', 'number', 'string', 'integer'],
+                    "{$path}.type must only contain primitive type names"
+                );
+            }
+            $this->assertSame(array_values(array_unique($types)), $types, "{$path}.type must be unique");
+        }
+
+        if (property_exists($node, 'description')) {
+            $this->assertIsString($node->description, "{$path}.description");
+        }
+
+        if (property_exists($node, 'properties')) {
+            $this->assertInstanceOf(stdClass::class, $node->properties, "{$path}.properties must be a JSON object");
+            foreach (get_object_vars($node->properties) as $name => $propertyschema) {
+                $this->assert_valid_schema_node($propertyschema, "{$path}.properties.{$name}");
+            }
+        }
+
+        if (property_exists($node, 'required')) {
+            $this->assertIsArray($node->required, "{$path}.required must be a JSON array");
+            $this->assertContainsOnly('string', $node->required, true, "{$path}.required");
+            $this->assertSame(array_values(array_unique($node->required)), $node->required, "{$path}.required must be unique");
+        }
+
+        if (property_exists($node, 'items')) {
+            $this->assert_valid_schema_node($node->items, "{$path}.items");
+        }
     }
 }

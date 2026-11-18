@@ -132,6 +132,16 @@ class tool_provider {
         $type = self::get_schema_type($param);
         $schema = ['type' => $type];
 
+        // Mark as internally required for parent structure processing.
+        if ($param->required === VALUE_REQUIRED) {
+            $schema['_required'] = true;
+        }
+
+        // Handling for nullable values and structures in JSON Schema.
+        if ($param->allownull == NULL_ALLOWED) {
+            $schema['type'] = [$type, 'null'];
+        }
+
         // Handle external_value (simple types).
         if ($param instanceof external_value) {
             if (!empty($param->desc)) {
@@ -140,16 +150,6 @@ class tool_provider {
 
             if ($param->required === VALUE_DEFAULT && $param->default !== null) {
                 $schema['default'] = $param->default;
-            }
-
-            // Mark as internally required for parent structure processing.
-            if ($param->required === VALUE_REQUIRED) {
-                $schema['_required'] = true;
-            }
-
-            // Handling for nullable values in JSON Schema.
-            if ($param->allownull == NULL_ALLOWED) {
-                $schema['type'] = [$type, 'null'];
             }
 
             return $schema;
@@ -165,7 +165,7 @@ class tool_provider {
 
                 // Collect required fields at this level.
                 if (!empty($subschema['_required'])) {
-                    $requiredfields[] = $key;
+                    $requiredfields[] = (string) $key;
                 }
 
                 // Remove internal marker before adding to schema.
@@ -174,7 +174,9 @@ class tool_provider {
                 $properties[$key] = $subschema;
             }
 
-            $schema['properties'] = empty($properties) ? new stdClass() : $properties;
+            $schema['properties'] = (empty($properties) || array_is_list($properties))
+                ? (object) $properties
+                : $properties;
 
             if (!empty($requiredfields)) {
                 $schema['required'] = $requiredfields;
@@ -209,6 +211,7 @@ class tool_provider {
                 case PARAM_INT:
                     return 'integer';
                 case PARAM_FLOAT:
+                case PARAM_LOCALISEDFLOAT:
                     return 'number';
                 case PARAM_BOOL:
                     return 'boolean';
