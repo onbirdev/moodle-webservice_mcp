@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## Version 0.8.0 (2026111801)
 - Security: Enforce Moodle web service authorization (`enabled`, `restrictedusers`, `validuntil`, `iprestriction`, `requiredcapability`, and token restrictions) in `tool_provider::get_tools()` / `get_tools_for_service()`
 - Fix: Handle CORS preflight `OPTIONS` requests before authentication in `server::run()`
 - Fix: Map Moodle exceptions (`invalid_parameter_exception`, unknown tool, `webservice_access_exception`, `required_capability_exception`, JSON parse errors) to standard JSON-RPC 2.0 error codes (`-32700`, `-32600`, `-32601`, `-32602`, `-32603`)
