@@ -28,6 +28,7 @@ use core_external\external_single_structure;
 use core_external\external_value;
 use Exception;
 use stdClass;
+use Throwable;
 use webservice_base_server;
 
 /**
@@ -362,7 +363,7 @@ class server extends webservice_base_server {
             } else {
                 $validatedvalues = $this->returns;
             }
-        } catch (Exception $ex) {
+        } catch (Throwable $ex) {
             $exception = $ex;
         }
 
@@ -388,8 +389,8 @@ class server extends webservice_base_server {
         ];
 
         $payload = [
-            'jsonrpc' => $this->mcprequest->jsonrpc,
-            'id' => $this->mcprequest->id,
+            'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
+            'id' => $this->mcprequest->id ?? null,
             'result' => $result,
         ];
 
@@ -399,7 +400,7 @@ class server extends webservice_base_server {
     /**
      * Sends an error response, optionally logging exception details for debugging.
      *
-     * @param Exception|null $ex The exception to log and include in the error response, or null if no exception is provided.
+     * @param Throwable|null $ex The exception to log and include in the error response, or null if no exception is provided.
      * @return void
      */
     protected function send_error($ex = null): void {
@@ -413,15 +414,15 @@ class server extends webservice_base_server {
     /**
      * Generates a standardized error response for handling exceptions in the JSON-RPC protocol.
      *
-     * @param Exception|moodle_exception|null $ex The exception to process. If null, a default internal error is returned.
+     * @param Throwable|moodle_exception|null $ex The exception to process. If null, a default internal error is returned.
      * @return array The formatted error response containing error code, message, and additional data.
      */
     protected function generate_error($ex): array {
         if ($ex === null) {
             return [
-                'jsonrpc' => $this->mcprequest->jsonrpc,
+                'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
                 'error' => ['code' => -32603, 'message' => 'Internal error'],
-                'id' => $this->mcprequest->id,
+                'id' => $this->mcprequest->id ?? null,
             ];
         }
 
@@ -440,7 +441,7 @@ class server extends webservice_base_server {
         }
 
         return [
-            'jsonrpc' => $this->mcprequest->id ?? '2.0',
+            'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
             'error' => [
                 'code' => -32603,
                 'message' => $ex->getMessage(),
@@ -483,9 +484,9 @@ class server extends webservice_base_server {
         if ($encoded === false) {
             // Avoid leaking internal structures; return minimal error JSON-RPC.
             $fallback = [
-                'jsonrpc' => $this->mcprequest->jsonrpc,
+                'jsonrpc' => $this->mcprequest->jsonrpc ?? '2.0',
                 'error' => ['code' => -32603, 'message' => 'Internal JSON encoding error'],
-                'id' => $this->mcprequest->id,
+                'id' => $this->mcprequest->id ?? null,
             ];
             return json_encode($fallback);
         }
@@ -496,10 +497,10 @@ class server extends webservice_base_server {
     /**
      * Log rich exception information when debugging is enabled.
      *
-     * @param Exception $ex
+     * @param Throwable $ex
      * @return void
      */
-    protected function log_exception_for_debug(Exception $ex): void {
+    protected function log_exception_for_debug(Throwable $ex): void {
         $info = get_exception_info($ex);
         $message = 'MCP exception handler: ' . $info->message .
             ' Debug: ' . ($info->debuginfo ?? '') . "\n" .

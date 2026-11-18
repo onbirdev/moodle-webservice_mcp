@@ -20,6 +20,7 @@ use advanced_testcase;
 use moodle_exception;
 use Exception;
 use ReflectionClass;
+use TypeError;
 use webservice_mcp\local\request;
 use webservice_mcp\local\server;
 
@@ -247,6 +248,82 @@ final class server_test extends advanced_testcase {
         $this->assertEquals('2.0', $error['jsonrpc']);
         $this->assertArrayHasKey('code', $error['error']);
         $this->assertArrayHasKey('message', $error['error']);
+    }
+
+    /**
+     * Test generate_error preserves jsonrpc 2.0 when request has an id.
+     */
+    public function test_generate_error_with_request_id(): void {
+        $this->resetAfterTest(true);
+
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+
+        $reflection = new ReflectionClass($server);
+        $mcprequestprop = $reflection->getProperty('mcprequest');
+        $mcprequestprop->setAccessible(true);
+        $mcprequestprop->setValue($server, new request([
+            'jsonrpc' => '2.0',
+            'method' => 'tools/call',
+            'id' => 42,
+        ]));
+
+        $method = $reflection->getMethod('generate_error');
+        $method->setAccessible(true);
+
+        $error = $method->invoke($server, new Exception('Tool execution failed'));
+
+        $this->assertSame('2.0', $error['jsonrpc']);
+        $this->assertSame(42, $error['id']);
+        $this->assertSame(-32603, $error['error']['code']);
+        $this->assertSame('Tool execution failed', $error['error']['message']);
+    }
+
+    /**
+     * Test generate_error with null exception and no request.
+     */
+    public function test_generate_error_null_exception(): void {
+        $this->resetAfterTest(true);
+
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+
+        $reflection = new ReflectionClass($server);
+        $method = $reflection->getMethod('generate_error');
+        $method->setAccessible(true);
+
+        $error = $method->invoke($server, null);
+
+        $this->assertSame('2.0', $error['jsonrpc']);
+        $this->assertNull($error['id']);
+        $this->assertSame(-32603, $error['error']['code']);
+        $this->assertSame('Internal error', $error['error']['message']);
+    }
+
+    /**
+     * Test generate_error handles PHP Error/Throwable instances.
+     */
+    public function test_generate_error_throwable(): void {
+        $this->resetAfterTest(true);
+
+        $server = new server(WEBSERVICE_AUTHMETHOD_PERMANENT_TOKEN);
+
+        $reflection = new ReflectionClass($server);
+        $mcprequestprop = $reflection->getProperty('mcprequest');
+        $mcprequestprop->setAccessible(true);
+        $mcprequestprop->setValue($server, new request([
+            'jsonrpc' => '2.0',
+            'method' => 'tools/call',
+            'id' => 'req-99',
+        ]));
+
+        $method = $reflection->getMethod('generate_error');
+        $method->setAccessible(true);
+
+        $error = $method->invoke($server, new TypeError('Invalid type'));
+
+        $this->assertSame('2.0', $error['jsonrpc']);
+        $this->assertSame('req-99', $error['id']);
+        $this->assertSame(TypeError::class, $error['error']['data']['exception']);
+        $this->assertSame('Invalid type', $error['error']['message']);
     }
 
     /**
